@@ -32,7 +32,9 @@ function event(id: number, extra: Partial<EventRecord> = {}): EventRecord {
 }
 
 test("routine events outside the cap are dropped, evidence is not", () => {
-  const events = Array.from({ length: 50 }, (_, i) => event(i + 1));
+  const events = Array.from({ length: 50 }, (_, i) =>
+    event(i + 1, { actor: "routine" }),
+  );
   events[0] = event(1, { status: "blocked", summary: "old blocker" });
   events[1] = event(2, {
     checks: [

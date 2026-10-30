@@ -34,6 +34,9 @@ structural errors reject the event with a reason, and no credentials are stored.
 
 ## Evidence rules the viewer must express
 
+- A check may say `evidence: "captured"` only on an event whose `source` is
+  `captured`. A reported event that tries this is rejected; claims cannot
+  relabel themselves as observations.
 - A reviewer verdict is a decision, not proof that tests ran.
 - An agent saying "tests passed" is `reported`. A captured command result is
   `checks[].evidence = "captured"`.

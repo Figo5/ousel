@@ -266,6 +266,7 @@ test("checks default evidence to reported and keep what was sent", () => {
   const result = validateEvent({
     actor: "a",
     action: "b",
+    source: "captured",
     checks: [
       {
         name: "npm test",
@@ -374,6 +375,21 @@ test("verdict tone reads the common vocabularies and stays neutral otherwise", (
   // Status fills in when there is no verdict at all.
   assert.equal(verdictTone(null, "error"), "danger");
   assert.equal(verdictTone(null, "blocked"), "warn");
+});
+
+test("a reported event cannot label its own check as captured", () => {
+  const result = validateEvent({
+    actor: "a",
+    action: "b",
+    checks: [{ name: "npm test", result: "pass", evidence: "captured" }],
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok)
+    assert.ok(
+      result.errors.some((error) =>
+        error.includes('requires source "captured"'),
+      ),
+    );
 });
 
 test("new enum fields require strings, not coercible arrays", () => {

@@ -205,6 +205,7 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
     const settingsPath = path.join(directory, "settings.json");
     let settings: unknown = {};
     let settingsMode = 0o600;
+    let settingsExisted = false;
     try {
       if (!(await lstat(directory)).isDirectory())
         throw new Error(".claude must be a real directory");
@@ -214,9 +215,14 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
       // Keep a team-shared file's existing permissions; only new files are
       // created owner-only.
       settingsMode = info.mode & 0o777;
+      settingsExisted = true;
       settings = JSON.parse(await readFile(settingsPath, "utf8"));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (values.remove && !settingsExisted) {
+      console.log(`Nothing to remove: ${settingsPath} does not exist.`);
+      return 0;
     }
     const result = mergeSettings(
       settings,

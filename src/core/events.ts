@@ -383,6 +383,14 @@ export function validateEvent(raw: unknown): Validation<IngestedEvent> {
   const issues = readIssues(raw["issues"], errors);
   const files = readFiles(raw["files"], errors);
   const checks = readChecks(raw["checks"], errors);
+  // Captured evidence is an observation by an integration. A merely reported
+  // event must not be able to relabel its own claim as captured.
+  if (source !== "captured")
+    for (const [index, check] of checks.entries())
+      if (check.evidence === "captured")
+        errors.push(
+          `checks[${index}].evidence "captured" requires source "captured"`,
+        );
   const project = readString(raw["project"], "project", LIMITS.project, errors);
   const task = readString(raw["task"], "task", LIMITS.task, errors);
 

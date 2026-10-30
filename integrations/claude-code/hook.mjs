@@ -47,11 +47,14 @@ export function isValidationCommand(command) {
     if (["npm", "pnpm", "yarn", "bun"].includes(bin))
       return validation.test(arg === "run" ? (script ?? "") : (arg ?? ""));
     if (bin === "npx") return ["tsc", "vitest"].includes(arg);
-    if (bin === "node")
-      return (
-        tokens.includes("--test") &&
-        !tokens.some((t) => ["-e", "--eval", "-p", "--print"].includes(t))
+    if (bin === "node") {
+      const testIndex = tokens.findIndex(
+        (token) => token === "--test" || token.startsWith("--test="),
       );
+      // A script path before --test (node app.js --test) is not a test run.
+      if (testIndex < 1 || !(tokens[1] ?? "").startsWith("-")) return false;
+      return !tokens.some((t) => ["-e", "--eval", "-p", "--print"].includes(t));
+    }
     // Only known runners count. A bare `test`, `build`, `lint` or `check` is
     // often a shell builtin or another tool, and must not become evidence.
     return ["tsc", "vitest"].includes(bin ?? "");

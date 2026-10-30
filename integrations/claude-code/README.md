@@ -19,7 +19,8 @@ removes only handlers referencing this checkout's hook path. Installation
 requires a successful health response; `--dry-run` and `--remove` are local
 edits and work with the viewer stopped. Unrelated settings and hook handlers
 remain.
-Writes use an atomic rename and mode 0600. Setup reports ingest failures after a
+Writes use an atomic rename and preserve the existing file mode (0600 for a
+new file). Setup reports ingest failures after a
 write honestly; it does not roll back installed settings after a viewer outage.
 
 The eight installed handlers are synchronous command hooks with `timeout: 5`

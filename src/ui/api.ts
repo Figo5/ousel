@@ -158,5 +158,11 @@ export function mergeEvents(
       keep.set(event.id, event);
   for (const event of merged.slice(merged.length - cap))
     keep.set(event.id, event);
+  // A handoff is resolved by any later event from its target, even a routine
+  // one. Keep the latest event per actor so retention cannot make an answered
+  // handoff look unanswered.
+  const latestByActor = new Map<string, EventRecord>();
+  for (const event of merged) latestByActor.set(event.actor, event);
+  for (const event of latestByActor.values()) keep.set(event.id, event);
   return [...keep.values()].sort((a, b) => a.id - b.id);
 }

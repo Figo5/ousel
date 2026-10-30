@@ -230,10 +230,17 @@ export function Evidence({ view, now }: { view: TaskView; now: number }) {
             <li key={`${check.at}-${check.name}-${index}`} className="check">
               <span className="check__name wrap-anywhere">{check.name}</span>
               <Pill tone={toneOf(check.result)}>{check.result}</Pill>
-              <SourceBadge
-                source={check.source}
-                label={`evidence: ${check.evidence}`}
-              />
+              {check.source === "synthetic" ? (
+                <SourceBadge
+                  source="synthetic"
+                  label="synthetic (not evidence)"
+                />
+              ) : (
+                <SourceBadge
+                  source={check.evidence}
+                  label={`evidence: ${check.evidence}`}
+                />
+              )}
               <span className="faint small">
                 {check.actor} · {relativeTime(check.at, now)}
               </span>
@@ -371,10 +378,17 @@ const TimelineEntry = memo(function TimelineEntry({
             <li key={`${check.name}-${index}`} className="check">
               <span className="check__name wrap-anywhere">{check.name}</span>
               <Pill tone={toneOf(check.result)}>{check.result}</Pill>
-              <SourceBadge
-                source={check.evidence}
-                label={`evidence: ${check.evidence}`}
-              />
+              {event.source === "synthetic" ? (
+                <SourceBadge
+                  source="synthetic"
+                  label="synthetic (not evidence)"
+                />
+              ) : (
+                <SourceBadge
+                  source={check.evidence}
+                  label={`evidence: ${check.evidence}`}
+                />
+              )}
               {check.durationMs !== null ? (
                 <span className="faint small">
                   {formatDuration(check.durationMs)}

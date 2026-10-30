@@ -351,23 +351,34 @@ test("project and task filters only stream that task", async () => {
 });
 
 test("a filtered stream pages past a full window of unrelated events", async () => {
-  await withServer(async (base) => {
+  await withServer(async (base, app) => {
     // The stream reads 200 rows at a time. If an entire first page is
     // filtered out, the pump must keep going instead of waiting forever.
-    await post(base, {
-      events: Array.from({ length: 205 }, (_, i) => ({
-        actor: `other-${i}`,
-        action: "x",
-        project: "p2",
-        task: "other",
-      })),
-    });
-    await post(base, {
-      actor: "wanted",
-      action: "x",
-      project: "p1",
-      task: "t1",
-    });
+    // Batches are capped at 100, so send three and check each was accepted.
+    for (let start = 0; start < 205; start += 100) {
+      const events = Array.from(
+        { length: Math.min(100, 205 - start) },
+        (_, offset) => ({
+          actor: `other-${start + offset}`,
+          action: "x",
+          project: "p2",
+          task: "other",
+        }),
+      );
+      assert.equal((await post(base, { events })).status, 202);
+    }
+    assert.equal(app.store.count(), 205);
+    assert.equal(
+      (
+        await post(base, {
+          actor: "wanted",
+          action: "x",
+          project: "p1",
+          task: "t1",
+        })
+      ).status,
+      202,
+    );
     await readStream(
       `${base}/api/events?project=p1&task=t1`,
       '"actor":"wanted"',

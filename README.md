@@ -105,7 +105,9 @@ Only explicit facts, plus one labelled inference:
 | _inferred_  | Never sent. Ousel derives it itself (the quiet label) and marks it as such. |
 
 `source: "inferred"` is rejected. Check `evidence` is `captured` or `reported`
-(default `reported`). Ousel never upgrades `reported` to `captured`.
+(default `reported`). A `checks[].evidence: "captured"` entry is accepted only
+when the event's own `source` is `captured`; a reported event cannot relabel its
+claim as an observation. Ousel never upgrades `reported` to `captured`.
 
 ---
 
