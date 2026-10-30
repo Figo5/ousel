@@ -34,6 +34,9 @@ npm run build
 npm start
 ```
 
+If `main` does not yet contain Ousel, switch to the review branch before
+installing: `git switch feat/ousel`.
+
 **Success:** `npm start` prints a line containing `http://127.0.0.1:4317` and
 stays running. It is a server — it does not exit, so start it in the background
 or in its own terminal.

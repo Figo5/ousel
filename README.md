@@ -11,6 +11,20 @@ does not launch agents, route models, or orchestrate anything.
 
 Silence means **stale or unknown** — never "blocked", never "done".
 
+```
+                    ·  researcher
+      planner ●──────────→ ● implementer
+                 ⋯⋯⋯⋯          │
+                               ↓
+                          ● reviewer   ◉ ← verdict flare
+```
+
+[![Recorded constellation with activity and handoff edges](docs/demo-preview.gif)](docs/demo.mp4)
+
+**[▶ Watch the full 53-second demo](docs/demo.mp4)** — recorded example
+activity with six actors and four provider labels. These labels describe
+reported events; the viewer does not connect to or launch those providers.
+
 > **Handing this to a coding agent?** [AGENTS.md](AGENTS.md) takes it from clone
 > to running to reporting. To connect Claude Code, see
 > [docs/claude-code-integration.md](docs/claude-code-integration.md).
@@ -30,6 +44,10 @@ npm install
 npm run build
 npm start
 ```
+
+> **Reviewing this PR before it merges?** `main` still contains AgentOps. Add
+> `git switch feat/ousel` after cloning to install the Ousel implementation in
+> this pull request.
 
 `npm start` prints `Ousel http://127.0.0.1:4317` and `Local data: …`. Open it.
 
@@ -54,9 +72,9 @@ npm run connect:claude -- --project /path/to/project --task my-task
 
 See [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
-To see the UI with sample content: `npm run demo` posts a few events labelled
-`source: "synthetic"` (project `demo`). They are fake, shown as synthetic, and
-separate from real activity.
+To see the UI with sample content, run `npm run demo`; see
+[Try a sample workflow](#try-a-sample-workflow). Those events are synthetic and
+labeled as such.
 
 ---
 
@@ -77,6 +95,22 @@ task). Events with no `project` or `task` appear under `unassigned`.
 
 The **Field** view is the original constellation of all tasks, with a session
 strip and a column of verdict / blocker / error cards.
+
+## Try a sample workflow
+
+With the server running, open its page and run this in a second terminal:
+
+```sh
+npm run demo
+```
+
+Watch a planner hand off to an implementer, a reviewer request a change, and the
+actors report a revised result. Every event is labeled **DEMO**, carries
+`source: "synthetic"`, and is grouped under project `demo` and task
+`sample-workflow` in the task view. This sends synthetic events only to your
+local server, stores them in its database, and makes no model calls. It does not
+start coding agents. Use `OUSEL_PORT` (or legacy `AGENTOPS_PORT`) if you started
+on a different port.
 
 ### Needs attention
 
