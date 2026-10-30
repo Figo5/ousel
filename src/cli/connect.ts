@@ -301,10 +301,12 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
 }
 
 function isMain() {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
   try {
     return (
       realpathSync(fileURLToPath(import.meta.url)) ===
-      realpathSync(path.resolve(process.argv[1]))
+      realpathSync(path.resolve(invoked))
     );
   } catch {
     return false;
