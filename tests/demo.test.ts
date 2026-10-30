@@ -16,7 +16,9 @@ function runDemo(
         "--fast",
       ],
       {
-        env: { ...process.env, AGENTOPS_PORT: String(port) },
+        // Explicit: an inherited OUSEL_PORT must not redirect the test's
+        // synthetic events into a real local viewer.
+        env: { ...process.env, OUSEL_PORT: String(port) },
         stdio: ["ignore", "ignore", "pipe"],
       },
     );
