@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -9,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 type ObjectValue = Record<string, unknown>;
@@ -299,9 +300,17 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
-) {
+function isMain() {
+  try {
+    return (
+      realpathSync(fileURLToPath(import.meta.url)) ===
+      realpathSync(path.resolve(process.argv[1]))
+    );
+  } catch {
+    return false;
+  }
+}
+
+if (process.argv[1] && isMain()) {
   process.exitCode = await connect();
 }

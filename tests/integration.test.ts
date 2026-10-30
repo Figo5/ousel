@@ -6,6 +6,7 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -992,3 +993,23 @@ test(
     }
   },
 );
+
+test("the hook runs when invoked through a symlinked path", async () => {
+  const fake = await viewer();
+  const directory = await mkdtemp(path.join(tmpdir(), "ousel-symlink-"));
+  try {
+    const link = path.join(directory, "hook.mjs");
+    await symlink(HOOK_PATH, link);
+    const result = await run([link], JSON.stringify(payload("Stop")), {
+      OUSEL_URL: fake.url,
+      OUSEL_PROJECT: "demo",
+      OUSEL_TASK: "integration",
+    });
+    assert.equal(result.code, 0);
+    assert.equal(fake.posts.length, 1);
+    assert.equal(fake.posts[0]?.action, "turn_complete");
+  } finally {
+    await close(fake.server);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

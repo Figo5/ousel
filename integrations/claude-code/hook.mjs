@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 // Strong credential shapes, regardless of surrounding words.
 const secretValue =
@@ -220,10 +221,18 @@ export async function runHook(input = process.stdin, env = process.env) {
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+function isMain() {
+  try {
+    return (
+      realpathSync(fileURLToPath(import.meta.url)) ===
+      realpathSync(process.argv[1])
+    );
+  } catch {
+    return false;
+  }
+}
+
+if (process.argv[1] && isMain()) {
   const exit = () => process.exit(0);
   process.on("uncaughtException", exit);
   process.on("unhandledRejection", exit);

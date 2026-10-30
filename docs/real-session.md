@@ -55,11 +55,11 @@ run, not a fixture.
 The browser was closed and the server restarted. The Task view answered within
 about a minute:
 
-| Question | Answer visible without raw logs |
-| --- | --- |
-| Who worked on this task? | `codex`, `maki`, `claude-code`, each with its session ids. The integration receipt is in the timeline but not counted as a participant. |
-| What was the outcome? | Review `approve` by codex; last completion from codex. |
-| What checks ran? | Six reported checks, including `node evaluation/run.mjs` and the seven-value boundary sweep. The UI says **0 captured · 6 reported**. |
+| Question                 | Answer visible without raw logs                                                                                                                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Who worked on this task? | `codex`, `maki`, `claude-code`, each with its session ids. The integration receipt is in the timeline but not counted as a participant.                                                                    |
+| What was the outcome?    | Review `approve` by codex; last completion from codex.                                                                                                                                                     |
+| What checks ran?         | Six reported checks, including `node evaluation/run.mjs` and the seven-value boundary sweep. The UI says **0 captured · 6 reported**.                                                                      |
 | What remains unresolved? | Two medium items: (1) the approval has no captured validation, because a verdict is not test evidence; (2) Claude requested changes and codex later approved — confirm the finding was actually addressed. |
 
 The timeline showed the start, handoff, captured Claude tool work, the finding,
