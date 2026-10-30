@@ -1,7 +1,8 @@
 # Real session: reviewing the upgrade-check skill
 
 This is a record of Ousel being used while Claude Code and Codex performed a
-bounded, real task. The task was independent of Ousel: review the `upgrade-check` skill and decide
+bounded, real task. The task was independent of Ousel: review the
+[upgrade-check skill](https://github.com/Figo5/upgrade-check-skill) and decide
 whether its harness proves an actual upgrade path. The data below is from the
 run, not a fixture.
 
