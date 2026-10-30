@@ -29,13 +29,12 @@ call at any point after install.
 ```bash
 git clone https://github.com/Figo5/ousel.git
 cd ousel
+# While PR #1 is under review, main is still the AgentOps viewer.
+git switch feat/ousel
 npm install
 npm run build
 npm start
 ```
-
-If `main` does not yet contain Ousel, switch to the review branch before
-installing: `git switch feat/ousel`.
 
 **Success:** `npm start` prints a line containing `http://127.0.0.1:4317` and
 stays running. It is a server — it does not exit, so start it in the background

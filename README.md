@@ -40,14 +40,12 @@ network call at runtime.
 ```bash
 git clone https://github.com/Figo5/ousel.git
 cd ousel
+# While PR #1 is under review, main is still the AgentOps viewer.
+git switch feat/ousel
 npm install
 npm run build
 npm start
 ```
-
-> **Reviewing this PR before it merges?** `main` still contains AgentOps. Add
-> `git switch feat/ousel` after cloning to install the Ousel implementation in
-> this pull request.
 
 `npm start` prints `Ousel http://127.0.0.1:4317` and `Local data: …`. Open it.
 
