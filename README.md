@@ -23,8 +23,8 @@ Silence means **stale or unknown** — never "blocked", never "done".
 
 A real Claude/Codex review session, with screenshots and what the viewer did and
 did not make clear, is recorded in [docs/real-session.md](docs/real-session.md).
-The older `docs/demo.mp4` was recorded before the rename and is kept as history;
-it shows the previous product name.
+The pre-rename recording is archived at `docs/archive/demo-agentops.mp4`; it
+shows the previous product name and is kept only as history.
 
 > **Handing this to a coding agent?** [AGENTS.md](AGENTS.md) takes it from clone
 > to running to reporting. To connect Claude Code, see
