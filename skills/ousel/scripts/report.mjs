@@ -2,13 +2,16 @@
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 // Keep this helper portable with the skill: only Node built-ins are required.
-const secretLike =
-  /(?:token|secret|password|passwd|authorization|api[-_]?key|credential|private[-_ ]key|\bBearer\s|\bBasic\s|\bsk-[\w-]+|\bgh[pousr]_[\w]+|\bAKIA[\w]+|\beyJ[\w-]+\.[\w-]+\.|:\/\/[^\s/]+@)/i;
+const secretValue =
+  /(?:\bBearer\s+\S|\bBasic\s+\S|\bsk-[\w-]{8,}|\bgh[pousr]_[\w]{8,}|\bAKIA[\w]{8,}|\beyJ[\w-]+\.[\w-]+\.|:\/\/[^\s/]+@)/;
+const secretAssignment =
+  /\b(?:token|secret|password|passwd|authorization|api[-_]?key|credential|private[-_ ]key)\b\s*[:=]\s*\S{4,}|--?(?:token|secret|password|api[-_]?key|credential)\b\s+\S+/i;
 
 // Prefer dropping a suspicious field to partially exposing a credential.
 function clean(value, max = 200) {
   if (typeof value !== "string") return undefined;
-  if (secretLike.test(value)) return "[redacted]";
+  if (secretValue.test(value) || secretAssignment.test(value))
+    return "[redacted]";
   return (
     value
       .replace(/[\x00-\x1f\x7f]/g, " ")
@@ -102,7 +105,7 @@ export async function report(args = process.argv.slice(2), env = process.env) {
     });
     const body = await response.json();
     if (
-      response.status !== 200 ||
+      ![200, 202].includes(response.status) ||
       body?.accepted !== 1 ||
       !Array.isArray(body.rejected) ||
       body.rejected.length

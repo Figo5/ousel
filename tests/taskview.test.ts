@@ -589,3 +589,60 @@ test("session ids and durations are shortened for rows only", () => {
   assert.equal(formatDuration(2500), "2.5s");
   assert.equal(formatDuration(75_000), "1m 15s");
 });
+
+test("synthetic checks are not counted as captured validation", () => {
+  const view = fold([
+    event({
+      actor: "demo",
+      source: "synthetic",
+      checks: [
+        {
+          name: "demo test",
+          result: "passed",
+          evidence: "captured",
+          command: "npm test",
+          durationMs: null,
+        },
+      ],
+    }),
+    event({ actor: "reviewer", verdict: "approve", source: "reported" }),
+  ]);
+  assert.equal(view.capturedChecks, 0);
+  assert.equal(view.syntheticChecks, 1);
+  assert.ok(
+    attentionItems(view, NOW).some(
+      (item) => item.id === "approval-without-captured-checks",
+    ),
+  );
+});
+
+test("a later approval lowers, but does not erase, an earlier change request", () => {
+  const view = fold([
+    event({
+      actor: "reviewer-a",
+      verdict: "needs-fixes",
+      summary: "Add a test",
+    }),
+    event({ actor: "implementer", status: "ok", summary: "Added it" }),
+    event({ actor: "reviewer-b", verdict: "approve", summary: "Looks right" }),
+  ]);
+  const item = attentionItems(view, NOW).find((entry) =>
+    entry.id.startsWith("verdict:reviewer-a"),
+  );
+  assert.ok(item);
+  assert.equal(item.tone, "medium");
+  assert.match(item.title, /later approved/);
+  assert.match(item.detail, /confirm the finding was actually addressed/);
+});
+
+test("the integration's connection receipt is not a participant", () => {
+  const view = fold([
+    event({ actor: "ousel", action: "integration_connected" }),
+    event({ actor: "claude-code", action: "session_start" }),
+  ]);
+  assert.deepEqual(
+    view.participants.map((p) => p.actor),
+    ["claude-code"],
+  );
+  assert.equal(view.events.length, 2, "the receipt stays in the timeline");
+});

@@ -5,6 +5,7 @@ From this Ousel checkout, with Node >=24 and a running v3 viewer:
 ```sh
 claude --version
 node --import tsx src/cli/connect.ts --project /absolute/project --task integration
+# or, from npm: npm run connect:claude -- --project /absolute/project --task integration
 ```
 
 Supported target: Claude Code 2.1.311, macOS/Linux shell commands. No automatic
@@ -14,13 +15,17 @@ checkout's absolute `hook.mjs` path and Node executable in the project's
 this checkout in place. No account, token, or credential is configured.
 
 `--url` selects a viewer, `--dry-run` prints the proposed JSON, and `--remove`
-removes only handlers referencing this checkout's hook path. All modes require
-a successful health response first. Unrelated settings and hook handlers remain.
+removes only handlers referencing this checkout's hook path. Installation
+requires a successful health response; `--dry-run` and `--remove` are local
+edits and work with the viewer stopped. Unrelated settings and hook handlers
+remain.
 Writes use an atomic rename and mode 0600. Setup reports ingest failures after a
 write honestly; it does not roll back installed settings after a viewer outage.
 
-The eight installed handlers use `async: true`, `timeout: 5`, and
-`onFailure: "continue"`. Their shell commands quote all values and suppress
+The eight installed handlers are synchronous command hooks with `timeout: 5`
+and `onFailure: "continue"`. Synchronous means a headless `claude -p` session
+cannot tear one down before it posts. The hook itself aborts after 1500 ms and
+always exits 0. Their shell commands quote all values and suppress
 output, including interpreter failures. The hook also has its own 2500 ms
 process deadline and 1500 ms HTTP timeout. It always exits 0 when runnable.
 No output is returned to Claude and no transcript is read.
@@ -50,7 +55,7 @@ of command arguments and project/task identities.
 
 Unknown events, malformed or oversized input, network errors, rejection, and
 timeouts are silently dropped. There are no retries, durable queues, or ordering
-guarantees. Async delivery may be lost at session teardown. Use the companion
+guarantees, and a slow viewer adds latency to the tool call. Use the companion
 `skills/ousel/SKILL.md` for explicit handoffs, blockers, and review judgments.
 
 See [implementation evidence](../../docs/claude-code-integration.md) and the

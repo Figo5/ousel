@@ -1012,3 +1012,73 @@ textarea {
     max-width: 100%;
   }
 }
+
+/* Narrow screens: the header becomes two rows and nothing may push the page
+   wider than the viewport. The timeline wraps its metadata instead of clipping. */
+@media (max-width: 700px) {
+  html,
+  body,
+  #root {
+    overflow-x: hidden;
+  }
+
+  .bar {
+    align-items: center;
+    row-gap: 8px;
+  }
+
+  .brand {
+    order: 0;
+  }
+
+  .bar__stat {
+    order: 1;
+  }
+
+  .bar__task {
+    order: 2;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .bar__task select {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .bar__spacer {
+    display: none;
+  }
+
+  .toggle {
+    order: 3;
+    margin-left: auto;
+  }
+
+  .bar__stream {
+    order: 4;
+  }
+
+  .strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .entry__head,
+  .who__head,
+  .attn__head,
+  .check {
+    flex-wrap: wrap;
+  }
+
+  .entry__time,
+  .who__time {
+    margin-left: auto;
+  }
+
+  .entry,
+  .who,
+  .check,
+  .attn {
+    min-width: 0;
+  }
+}

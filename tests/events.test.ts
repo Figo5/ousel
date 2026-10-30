@@ -375,3 +375,18 @@ test("verdict tone reads the common vocabularies and stays neutral otherwise", (
   assert.equal(verdictTone(null, "error"), "danger");
   assert.equal(verdictTone(null, "blocked"), "warn");
 });
+
+test("new enum fields require strings, not coercible arrays", () => {
+  assert.equal(
+    validateEvent({ actor: "a", action: "x", source: ["captured"] }).ok,
+    false,
+  );
+  assert.equal(
+    validateEvent({
+      actor: "a",
+      action: "x",
+      checks: [{ name: "n", result: "ok", evidence: ["captured"] }],
+    }).ok,
+    false,
+  );
+});

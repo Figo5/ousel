@@ -102,9 +102,11 @@ export function SummaryStrip({ view, now }: { view: TaskView; now: number }) {
           {view.capturedChecks} captured · {view.reportedChecks} reported
         </span>
         <span className="tile__note">
-          {view.capturedChecks === 0
-            ? "no captured validation"
-            : "captured = observed by an integration"}
+          {view.syntheticChecks > 0
+            ? `${view.syntheticChecks} synthetic (not evidence)`
+            : view.capturedChecks === 0
+              ? "no captured validation"
+              : "captured = observed by an integration"}
         </span>
       </div>
       <div className="tile">
@@ -200,6 +202,42 @@ export function Participants({
               participant={participant}
               now={now}
             />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+export function Evidence({ view, now }: { view: TaskView; now: number }) {
+  const checks = [...view.checks].reverse();
+  return (
+    <section className="panel" aria-labelledby="evidence-h">
+      <h2 id="evidence-h">Validation evidence</h2>
+      <p className="faint small">
+        {view.capturedChecks} captured · {view.reportedChecks} reported
+        {view.syntheticChecks > 0
+          ? ` · ${view.syntheticChecks} synthetic (not evidence)`
+          : ""}
+      </p>
+      {checks.length === 0 ? (
+        <p className="faint small">
+          No checks recorded. That is an absence of evidence, not a pass.
+        </p>
+      ) : (
+        <ul className="checks">
+          {checks.slice(0, 12).map((check, index) => (
+            <li key={`${check.at}-${check.name}-${index}`} className="check">
+              <span className="check__name wrap-anywhere">{check.name}</span>
+              <Pill tone={toneOf(check.result)}>{check.result}</Pill>
+              <SourceBadge
+                source={check.source}
+                label={`evidence: ${check.evidence}`}
+              />
+              <span className="faint small">
+                {check.actor} · {relativeTime(check.at, now)}
+              </span>
+            </li>
           ))}
         </ul>
       )}
@@ -314,7 +352,9 @@ const TimelineEntry = memo(function TimelineEntry({
               title={file.change ?? "change not stated"}
             >
               <span aria-hidden="true">
-                {CHANGE_GLYPH[(file.change ?? "").toLowerCase()] ?? "·"}
+                {Object.hasOwn(CHANGE_GLYPH, (file.change ?? "").toLowerCase())
+                  ? CHANGE_GLYPH[(file.change ?? "").toLowerCase()]
+                  : "·"}
               </span>{" "}
               {file.path}
               {file.change ? (

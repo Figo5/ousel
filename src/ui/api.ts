@@ -140,5 +140,23 @@ export function mergeEvents(
   for (const event of existing) byId.set(event.id, event);
   for (const event of incoming) byId.set(event.id, event);
   const merged = [...byId.values()].sort((a, b) => a.id - b.id);
-  return merged.length > cap ? merged.slice(merged.length - cap) : merged;
+  if (merged.length <= cap) return merged;
+  // Routine tool events may be dropped from the display window, but a status,
+  // verdict, handoff, check or file reference can still be the only record of
+  // unresolved work. Keep those regardless of age; they are a small fraction
+  // of a stream, and losing them would make "needs attention" silently wrong.
+  const keep = new Map<number, EventRecord>();
+  for (const event of merged)
+    if (
+      event.status ||
+      event.verdict ||
+      event.checks.length > 0 ||
+      event.files.length > 0 ||
+      event.target ||
+      event.parent
+    )
+      keep.set(event.id, event);
+  for (const event of merged.slice(merged.length - cap))
+    keep.set(event.id, event);
+  return [...keep.values()].sort((a, b) => a.id - b.id);
 }

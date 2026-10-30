@@ -46,8 +46,13 @@ Expect `{"accepted":1,"rejected":[],"latestId":1}` and
 `{"ok":true,"version":"3.0.0",…}`. The `content-type: application/json` header
 is required (`415` without it).
 
-Connect Claude Code: `npm run connect:claude` (see
-[docs/claude-code-integration.md](docs/claude-code-integration.md)).
+Connect Claude Code (project directory and task slug are required):
+
+```bash
+npm run connect:claude -- --project /path/to/project --task my-task
+```
+
+See [docs/claude-code-integration.md](docs/claude-code-integration.md).
 
 To see the UI with sample content: `npm run demo` posts a few events labelled
 `source: "synthetic"` (project `demo`). They are fake, shown as synthetic, and
@@ -211,11 +216,13 @@ event with `actor: "operator"` and `action: "reply"`.
 | `OUSEL_PORT` (legacy `AGENTOPS_PORT`)         | `4317`     | Port on 127.0.0.1. `OUSEL_PORT` wins.               |
 | `OUSEL_DATA_DIR` (legacy `AGENTOPS_DATA_DIR`) | `~/.ousel` | Where the SQLite file lives. `OUSEL_DATA_DIR` wins. |
 
-Data directory, in order: `OUSEL_DATA_DIR`, `AGENTOPS_DATA_DIR`, `~/.ousel` if
-it exists, `~/.agentops` if it exists (a one-line notice is logged), otherwise a
-new `~/.ousel`. The database is `ousel.sqlite` in a new `~/.ousel` and
-`agentops.sqlite` in the legacy directory; a directory holding only the other
-name keeps using that file, so existing data is found.
+Data directory: an explicit `OUSEL_DATA_DIR` or `AGENTOPS_DATA_DIR` wins. With
+neither set, an existing database wins over an empty directory: `~/.ousel` is
+used if it holds a database, else `~/.agentops` if it holds one, else whichever
+of the two directories exists, else a new `~/.ousel`. The database is
+`ousel.sqlite` in a new `~/.ousel` and `agentops.sqlite` in the legacy directory;
+a directory holding only the other name uses that file. A notice is logged when
+legacy data is in use or when both databases exist.
 
 Write routes accept the token as `x-ousel-token` (primary) or the legacy
 `x-agentops-token`; it is the same token, from `/api/bootstrap`.

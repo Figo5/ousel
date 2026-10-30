@@ -164,19 +164,28 @@ export function createApp(options: AppOptions = {}) {
         const pump = () => {
           if (blocked || res.destroyed) return;
           try {
-            for (const event of store.since(cursor)) {
-              cursor = event.id;
-              if (session && event.session !== session) continue;
-              if (project && event.project !== project) continue;
-              if (task && event.task !== task) continue;
-              if (
-                !res.write(
-                  `id: ${event.id}\nevent: event\ndata: ${JSON.stringify(event)}\n\n`,
-                )
-              ) {
-                blocked = true;
-                break;
+            // `since` pages at 200. Keep paging until it returns a short
+            // batch: otherwise a task filter that skips all 200 rows would
+            // leave the cursor advanced with nothing sent and nothing left
+            // to wake the pump.
+            for (;;) {
+              const batch = store.since(cursor);
+              if (batch.length === 0) break;
+              for (const event of batch) {
+                cursor = event.id;
+                if (session && event.session !== session) continue;
+                if (project && event.project !== project) continue;
+                if (task && event.task !== task) continue;
+                if (
+                  !res.write(
+                    `id: ${event.id}\nevent: event\ndata: ${JSON.stringify(event)}\n\n`,
+                  )
+                ) {
+                  blocked = true;
+                  return;
+                }
               }
+              if (batch.length < 200) break;
             }
           } catch {
             res.end();

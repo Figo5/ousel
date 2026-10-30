@@ -41,6 +41,28 @@ test("an existing ~/.agentops is used, with a notice, and keeps its file", () =>
   assert.match(config.notice ?? "", /legacy data directory/i);
 });
 
+test("an empty ~/.ousel does not hide a populated ~/.agentops", () => {
+  const config = resolve({}, [
+    OUSEL,
+    LEGACY,
+    path.join(LEGACY, "agentops.sqlite"),
+  ]);
+  assert.equal(config.dataDir, LEGACY);
+  assert.equal(config.dbPath, path.join(LEGACY, "agentops.sqlite"));
+  assert.match(config.notice ?? "", /legacy data directory/i);
+});
+
+test("a populated ~/.ousel wins, and the older database is noted", () => {
+  const config = resolve({}, [
+    OUSEL,
+    LEGACY,
+    path.join(OUSEL, "ousel.sqlite"),
+    path.join(LEGACY, "agentops.sqlite"),
+  ]);
+  assert.equal(config.dataDir, OUSEL);
+  assert.match(config.notice ?? "", /older database also exists/i);
+});
+
 test("an empty legacy directory still uses the legacy file name", () => {
   const config = resolve({}, [LEGACY]);
   assert.equal(config.dbPath, path.join(LEGACY, "agentops.sqlite"));

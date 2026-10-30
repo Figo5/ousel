@@ -6,7 +6,9 @@ like, so you can tell whether it worked rather than guessing.
 
 Ousel is a viewer that runs on this machine. Agents post what they are doing
 to it over HTTP and it organizes that by project and task. It orchestrates
-nothing and launches nothing, so setting it up cannot affect anything else you are running.
+nothing and launches nothing. The only thing it changes is the local database
+and data directory it is pointed at; an existing AgentOps database is migrated
+in place, so use a disposable `OUSEL_DATA_DIR` when testing.
 
 ## 1. Check the requirements
 
@@ -95,8 +97,9 @@ Report:
 | You hand work off      | `target: "<the other actor>"`                                    |
 | You judge something    | `verdict` plus a `summary`, and `issues` if you have specifics   |
 
-`blocked` is the one that gets their attention — the card is marked **Waiting**
-until something later in that session reports a status.
+`blocked` is the one that gets their attention — it appears in **Needs
+attention** and on the field. Silence is never turned into `blocked`; a quiet
+agent is labelled as inferred from inactivity, not as stuck.
 
 **Rules**
 
@@ -104,6 +107,12 @@ until something later in that session reports a status.
   dependency of your real work, and a human watching is not worth a stall.
 - One event per meaningful step, not per token. Batch up to 100 with
   `{"events":[…]}` if you are chatty.
+- Set `project` and `task` on every event so it lands in the task view. They are
+  omitted only by legacy clients, which appear under `unassigned`.
+- `source: "captured"` means an integration observed it. Use `reported` when you
+  are making a claim. Never send `inferred`; Ousel derives and labels that itself.
+- A check is `reported` unless an integration captured the command result. A
+  reviewer approval is not proof that tests ran.
 - Never send secrets. Credentials are stripped on arrival, but do not rely on
   that.
 
@@ -114,6 +123,16 @@ curl -N "localhost:4317/api/events?session=<session>"
 ```
 
 A reply arrives as an event with `actor: "operator"` and `action: "reply"`.
+
+For automatic Claude Code capture:
+
+```bash
+npm run connect:claude -- --project /path/to/project --task <task-slug>
+```
+
+See [docs/claude-code-integration.md](docs/claude-code-integration.md). Codex and
+other hosts use explicit reporting above; no automatic capture is claimed for
+them. A companion reporting skill is in [skills/ousel](skills/ousel/SKILL.md).
 
 [README.md](README.md) has the full contract: every field, every limit, every
 response code. The running server serves it at

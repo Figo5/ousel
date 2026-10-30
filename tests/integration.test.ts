@@ -57,7 +57,7 @@ const run = (args: string[], input = "", extraEnv = {}, shell = false) =>
     },
   );
 
-async function viewer(status = 200, stall = false) {
+async function viewer(status = 202, stall = false) {
   const posts: Record<string, unknown>[] = [];
   const server = createServer(async (req, res) => {
     if (stall) return;
@@ -79,8 +79,10 @@ async function viewer(status = 200, stall = false) {
     res.statusCode = status;
     res.end(
       JSON.stringify({
-        accepted: status === 200 ? 1 : 0,
-        rejected: status === 200 ? [] : [{ reason: "fixture rejection" }],
+        accepted: [200, 202, 207].includes(status) ? 1 : 0,
+        rejected: [200, 202, 207].includes(status)
+          ? []
+          : [{ reason: "fixture rejection" }],
         latestId: posts.length,
       }),
     );
@@ -180,7 +182,8 @@ test("simulated transport: runnable hooks, atomic CLI writes, idempotence, dry-r
     const installed = await run(args);
     assert.equal(installed.code, 0, installed.stderr);
     const json = await readFile(settingsPath, "utf8");
-    assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
+    // The fixture created this file with 0644; an existing mode is preserved.
+    assert.equal((await stat(settingsPath)).mode & 0o777, 0o644);
     assert.equal((await run(args)).code, 0);
     assert.equal(await readFile(settingsPath, "utf8"), json);
     const requests = (await readFile(record, "utf8"))
@@ -463,11 +466,15 @@ for (const [name, action, status, summary] of [
       assert.equal(result.actor, "claude:Explore");
       assert.equal(result.session, "agent-1");
       assert.equal(result.parent, "main");
-    } else {
+    } else if (!name!.startsWith("PostToolUse")) {
       assert.equal(result.session, "session-1");
       assert.equal(result.actor, "main");
     }
     if (name!.startsWith("PostToolUse")) {
+      // Tool payloads carrying agent_id belong to the subagent, not the parent.
+      assert.equal(result.actor, "claude:Explore");
+      assert.equal(result.session, "agent-1");
+      assert.equal(result.parent, "main");
       assert.deepEqual(result.checks, [
         {
           name: "npm test",
@@ -816,13 +823,15 @@ test(
       assert.equal(connected.code, 0, connected.stderr);
       const settingsPath = path.join(project, ".claude/settings.json");
       const json = await readFile(settingsPath, "utf8");
+      // A newly created settings file is owner-only.
       assert.equal((await stat(settingsPath)).mode & 0o777, 0o600);
       const settings = JSON.parse(json);
       for (const event of HOOK_EVENTS) {
         const handler = settings.hooks[event][0].hooks[0];
         assert.equal(handler.timeout, 5);
         assert.equal(handler.onFailure, "continue");
-        assert.equal(handler.async, true);
+        // Synchronous so a headless session cannot tear it down mid-post.
+        assert.equal(handler.async, undefined);
       }
       assert.equal(fake.posts[3]?.source, "reported");
       assert.equal(fake.posts[3]?.action, "integration_connected");

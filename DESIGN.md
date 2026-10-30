@@ -1,8 +1,8 @@
 # Ousel design
 
 Ousel is a local workspace for understanding what a coding-agent team is doing
-and what needs review. This file describes the intended layout; it makes no
-claim about browsers or screen sizes it has been checked in.
+and what needs review. This file describes the intended layout. It was checked in
+headless Chrome at 1440 × 900 and 390 × 844; that is not a browser matrix.
 
 ## Layout: one page, two views
 

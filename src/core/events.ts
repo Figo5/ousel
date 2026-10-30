@@ -261,13 +261,17 @@ function readChecks(raw: unknown, errors: string[]): EventCheck[] {
     let evidence: CheckEvidence = "reported";
     const evidenceRaw = item["evidence"];
     if (evidenceRaw !== undefined && evidenceRaw !== null) {
-      const candidate = String(evidenceRaw).trim().toLowerCase();
-      if ((CHECK_EVIDENCE as readonly string[]).includes(candidate))
-        evidence = candidate as CheckEvidence;
-      else
-        errors.push(
-          `checks[${index}].evidence must be one of ${CHECK_EVIDENCE.join(", ")}`,
-        );
+      if (typeof evidenceRaw !== "string") {
+        errors.push(`checks[${index}].evidence must be a string when present`);
+      } else {
+        const candidate = evidenceRaw.trim().toLowerCase();
+        if ((CHECK_EVIDENCE as readonly string[]).includes(candidate))
+          evidence = candidate as CheckEvidence;
+        else
+          errors.push(
+            `checks[${index}].evidence must be one of ${CHECK_EVIDENCE.join(", ")}`,
+          );
+      }
     }
     let durationMs: number | null = null;
     const durationRaw = item["durationMs"];
@@ -331,14 +335,18 @@ export function validateEvent(raw: unknown): Validation<IngestedEvent> {
   let source: EventSource = "reported";
   const sourceRaw = raw["source"];
   if (sourceRaw !== undefined && sourceRaw !== null) {
-    const candidate = String(sourceRaw).trim().toLowerCase();
-    if ((EVENT_SOURCES as readonly string[]).includes(candidate))
-      source = candidate as EventSource;
-    else if (candidate === "inferred")
-      errors.push(
-        `source "inferred" is not accepted: only the viewer infers, and never stores it. Use one of ${EVENT_SOURCES.join(", ")}`,
-      );
-    else errors.push(`source must be one of ${EVENT_SOURCES.join(", ")}`);
+    if (typeof sourceRaw !== "string") {
+      errors.push("source must be a string when present");
+    } else {
+      const candidate = sourceRaw.trim().toLowerCase();
+      if ((EVENT_SOURCES as readonly string[]).includes(candidate))
+        source = candidate as EventSource;
+      else if (candidate === "inferred")
+        errors.push(
+          `source "inferred" is not accepted: only the viewer infers, and never stores it. Use one of ${EVENT_SOURCES.join(", ")}`,
+        );
+      else errors.push(`source must be one of ${EVENT_SOURCES.join(", ")}`);
+    }
   }
 
   const known = new Set([

@@ -1,302 +1,106 @@
-# Claude Code integration: implementation and verification
+# Claude Code automatic capture
 
-Worktree: `/Users/giofiore/work/ousel-integration`, branch
-`feat/claude-integration`, base `0142bda`. Only the seven owned integration,
-CLI, skill, test, and documentation files were added. Package scripts and
-viewer implementation were left unchanged.
+Ousel can observe a Claude Code session through the host's documented lifecycle
+hooks. This is the one automatic integration in this release. It was built and
+tested against **Claude Code 2.1.311** on macOS 27.0.1 with Node 26.8.1. The hook
+schema was checked against the official [hooks reference](https://code.claude.com/docs/en/hooks)
+for that version; no other Claude Code version is claimed.
 
-## Design
+## Setup
 
-The hook whitelists lifecycle metadata and emits v3 events without reading
-transcripts or transmitting conversation/tool-output bodies. Missing durations
-remain absent. Validation recognition is conservative; complex shell programs
-and background launches do not become passed checks. Credential-like fields
-are replaced before truncation. File changes are reported only for successful
-Edit/Write/NotebookEdit calls. The helper always identifies explicit reports as
-`source: "reported"`.
-
-The setup command registers the absolute checkout hook and Node executable.
-No credentials are needed for ingest. It requires valid `/api/health` before
-writing, preserves unrelated settings, and writes mode 0600 via atomic rename.
-Removal does not emit an `integration_connected` event. Dry-run only prints JSON.
-The base viewer has not yet implemented the v3 health endpoint or promoted v3
-fields out of `detail`; the companion viewer changes are required for live use.
-
-[Official hook reference](https://code.claude.com/docs/en/hooks) was read on
-2026-10-30. The requested `.md` endpoint returned an unsupported-content-type
-error through the web reader, so its HTML equivalent was used. Command handlers
-receive stdin JSON; these handlers are asynchronous, silent, and use
-`onFailure: "continue"`. Async handlers need their own deadline and can be
-cancelled at session teardown. This implementation adds a 2500 ms process limit
-and a 1500 ms fetch timeout. Timing is omitted when `duration_ms` is absent.
-
-## Commands actually run
-
-All commands were run from the integration worktree unless their paths below
-are absolute. No live Claude coding session was launched.
-
-| Command                                                                                                     | Observed result                                                                                                                                                                            |
-| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `node --version`                                                                                            | `v26.8.1`                                                                                                                                                                                  |
-| `claude --version`                                                                                          | `2.1.311 (Claude Code)`                                                                                                                                                                    |
-| `git branch --show-current`                                                                                 | `feat/claude-integration`                                                                                                                                                                  |
-| `git log -1 --oneline`                                                                                      | `0142bda Document the Ousel v3 event contract`                                                                                                                                             |
-| `npm ci --offline --ignore-scripts --no-audit --no-fund --cache /Users/giofiore/.npm`                       | Exit 0; installed 29 cached packages, no package/lockfile edits.                                                                                                                           |
-| `node --import tsx --test tests/integration.test.ts`                                                        | 27 tests: 20 passed, 0 failed, 7 explicitly skipped because loopback listeners are denied.                                                                                                 |
-| `node --check integrations/claude-code/hook.mjs`                                                            | Exit 0; no output.                                                                                                                                                                         |
-| `node --check skills/ousel/scripts/report.mjs`                                                              | Exit 0; no output.                                                                                                                                                                         |
-| `npm run check`                                                                                             | Typecheck passed. Suite: 63 tests, 46 passed, 10 failed, 7 skipped. All 10 failures were existing `tests/server.test.ts` tests with `listen EPERM`. Build was not reached by this command. |
-| `npm run build`                                                                                             | Exit 0; typecheck passed, Vite built 24 modules.                                                                                                                                           |
-| `npm run format:check`                                                                                      | Exit 1; existing formatting in `src/ui/constellation.ts` and `docs/event-contract-v3.md`. Neither file was edited.                                                                         |
-| `OUSEL_EVIDENCE=1 node --import tsx --test tests/integration.test.ts > /tmp/ousel-integration-evidence.txt` | Exit 0; output below was captured from actual subprocesses with a fetch stub.                                                                                                              |
-
-Initial testing exposed a command-recognition bug and a formatting-sensitive
-TypeScript suppression; both were fixed before the reported final results.
-No TCP test is silently counted as passed: the initial listener probe produced
-`Error: listen EPERM: operation not permitted 127.0.0.1`. The tests explicitly
-skip only the seven checks requiring TCP when that exact sandbox error occurs.
-Other listener errors fail the suite.
-
-## Captured subprocess evidence (simulated transport, not HTTP)
-
-The requested fake HTTP server could not bind inside this sandbox. Therefore
-**the end-to-end HTTP verification is not completed**. The suite contains the
-real temporary-server test, including POST recording, ready to run in an
-environment permitting loopback sockets.
-
-As additional evidence, subprocesses ran `hook.mjs` with documentation-shaped
-SessionStart/PostToolUse/Stop payloads. A test-only fetch stub recorded the JSON
-requests. The payloads included transcript paths, tool stdout/stderr, and final
-assistant text; none appears in these events. `npm run check` and its duration
-in this fixture are fixture inputs, not a claim that this fixture ran that
-command. These fixture events were never sent to a live viewer. Their
-`source: "captured"` is the hook's contract output under test, not synthetic data
-inserted into a production stream.
-
-```json
-[
-  {
-    "actor": "claude-code",
-    "source": "captured",
-    "provider": "claude",
-    "session": "fixture-session",
-    "project": "fixture-project",
-    "task": "integration",
-    "action": "session_start",
-    "status": "running",
-    "summary": "Claude Code session started"
-  },
-  {
-    "actor": "claude-code",
-    "source": "captured",
-    "provider": "claude",
-    "session": "fixture-session",
-    "project": "fixture-project",
-    "task": "integration",
-    "action": "tool_completed",
-    "status": "ok",
-    "summary": "Bash completed",
-    "detail": {
-      "tool": "Bash",
-      "durationMs": 42
-    },
-    "checks": [
-      {
-        "name": "npm run check",
-        "result": "passed",
-        "evidence": "captured",
-        "command": "npm run check",
-        "durationMs": 42
-      }
-    ]
-  },
-  {
-    "actor": "claude-code",
-    "source": "captured",
-    "provider": "claude",
-    "session": "fixture-session",
-    "project": "fixture-project",
-    "task": "integration",
-    "action": "turn_complete",
-    "status": "ok",
-    "summary": "Claude Code finished responding"
-  }
-]
-```
-
-The real CLI ran against a temporary project, with health and ingest responses
-simulated by the same fetch stub. Its recorded output (local paths redacted):
-
-```text
-Health: {"ok":true,"version":"3.0.0-simulated","latestId":0,"total":0}
-Settings: /tmp/PROJECT/.claude/settings.json
-Ousel hooks: 8
-Ingest: HTTP 200, accepted=1, rejected=0
-```
-
-Generated settings JSON, read back from disk (only absolute local paths redacted):
-
-```json
-{
-  "permissions": {
-    "allow": ["Read"]
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo keep"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ],
-    "PostToolUseFailure": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "OUSEL_URL='http://127.0.0.1:4317' OUSEL_PROJECT='/tmp/PROJECT' OUSEL_TASK='integration' OUSEL_ACTOR='claude-code' '/absolute/node' '/absolute/ousel-integration/integrations/claude-code/hook.mjs' >/dev/null 2>&1 || :",
-            "async": true,
-            "timeout": 5,
-            "onFailure": "continue"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-The tests checked mode 0600, repeat installation byte equality, unrelated-hook
-preservation, dry-run with no settings mutation, removal, invalid JSON, failed
-health with no settings directory created, and simulated 207/400 responses.
-Shell execution tests also passed paths containing apostrophes, spaces, command
-substitution text, and backticks as literal values; a missing hook launcher was
-silent and exited zero. Direct malformed/oversized/unknown input and failed
-connection paths exited zero with empty stdout/stderr. A stalled stdin process
-exited zero at its own deadline. Reporter failures exited zero with a short
-stderr note; explicit health diagnostics exited 2 and printed `unreachable`.
-
-## Outstanding verification and commits
-
-A live v3 viewer, real TCP delivery/timeout, and a real Claude Code session have
-not been verified. Only Claude Code 2.1.311 is the target; no automatic capture
-claims are made for other agents or versions. Async events can be dropped or
-reordered, and there is no retry/queue. The local redaction filter is best
-effort, and validation recognition intentionally misses complex commands.
-
-Run the following where loopback sockets are permitted; successful output must
-include the actual `HOOK_POSTS`, `CONNECT_OUTPUT`, `SETTINGS_JSON`, and
-`CONNECT_POST` sections from the fake HTTP test, and no skipped TCP checks:
+Start Ousel, then register the hook for one project and task:
 
 ```sh
-OUSEL_EVIDENCE=1 node --import tsx --test tests/integration.test.ts
+cd /path/to/ousel
+npm start
+
+# in another terminal
+npm run connect:claude -- \
+  --project /path/to/project \
+  --task my-task \
+  --name my-project
 ```
 
-Local commits could not be created. The attempted command was:
+`--name` is optional (default: the project directory's basename). `--url`
+selects a viewer other than `http://127.0.0.1:4317`. The command:
 
-```sh
-git add integrations/claude-code/hook.mjs && git commit -m 'feat(integration): capture Claude Code hook events safely'
-```
+1. checks `GET /api/health` and stops without writing if no v3 viewer is there;
+2. merges eight command hooks into `<project>/.claude/settings.json`, preserving
+   unrelated settings and removing only handlers that point at this checkout;
+3. writes atomically with the file's existing mode (0600 for a new file);
+4. posts a reported `integration_connected` event and prints the receipt.
 
-It exited 128 before staging with:
+Use `--dry-run` to print the proposed JSON without writing or contacting the
+viewer, and `--remove` to remove only Ousel's handlers. Both local modes work
+with the viewer stopped.
 
-```text
-fatal: Unable to create '/Users/giofiore/agentops/.git/worktrees/ousel-integration/index.lock': Operation not permitted
-```
+The installed command uses the absolute Node executable and this checkout's
+absolute `integrations/claude-code/hook.mjs`. Keep the checkout in place; moving
+it orphans the handlers (re-run `--remove` from the old path, then connect again).
 
-The worktree's Git metadata is outside the writable sandbox. No permission
-bypass or alternate repository was attempted. There are no new commit hashes
-and nothing was pushed. The intended four local commits, once metadata writes
-are permitted, group capture, setup CLI, reporting skill, and tests/evidence.
+## What is captured
+
+Eight synchronous command hooks: `SessionStart`, `UserPromptSubmit`,
+`PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`, `Stop`,
+`SessionEnd`. Synchronous is deliberate: an async hook can be killed when a
+headless `claude -p` session ends. The hook aborts after 1500 ms, and the shell
+command also redirects output and returns success, so a viewer outage cannot
+block a tool call. With the viewer stopped, the hook exited 0 in about 80 ms in
+the verification below.
+
+Events have `source: "captured"` and `provider: "claude"`. Captured fields are:
+
+- session id, event lifecycle, tool name, duration, and file paths for
+  Edit/Write/NotebookEdit (no file contents);
+- subagent `agent_id`/`agent_type`, with `parent` set to the main actor;
+- the fact that a prompt was submitted and its character count — **not** the
+  prompt text, the assistant message, tool stdout/stderr, or error bodies;
+- a validation check only for a small allowlist of simple commands (`npm test`,
+  `npm run check`, `tsc`, `vitest`, `node --test`, with `cd dir &&` and env
+  assignments). The result means the tool invocation completed successfully; it
+  is not a per-test report or proof of coverage.
+
+This classifier is conservative. During the live review below, Claude ran
+`node evaluation/run.mjs`; the hook did **not** turn that into a captured check
+because the script name is not recognized. The review's harness run was then
+recorded only as a reported claim. Do not read "no captured checks" as "nothing
+ran", and do not read an approval as test evidence.
+
+Secrets: obvious credential shapes (`Bearer …`, `sk-…`, URL userinfo, key
+assignments, secret flags) are replaced with `[redacted]`. Paths such as
+`src/auth/token.ts` and summaries such as "token refresh fix" are preserved.
+This is a best-effort filter, not a guarantee. Keep credentials out of commands
+and file names.
+
+## Verification (2026-10-30)
+
+Tested on the authoring machine, not a general compatibility matrix.
+
+- `npm run connect:claude -- --project /tmp/review-upgrade-check --task upgrade-check-review --name upgrade-check`
+  printed `Health: {"ok":true,"version":"3.0.0",...}`, `Ousel hooks: 8`, and
+  `Ingest: HTTP 202, accepted=1, rejected=0`.
+- A live `claude -p --model sonnet` review session in that project produced 15
+  captured events: session start, prompt count, nine tool completions, two tool
+  failures, the `FINDINGS.md` write with its path, turn complete, and session end.
+  A bootstrap query showed `source: "captured"` for all 15; no prompt or assistant
+  text was present.
+- The same command run twice left exactly eight Ousel handlers in
+  `settings.json` and preserved an unrelated `Stop` hook.
+- With the viewer stopped, a `Stop` hook payload exited 0 in 0.077 s and posted
+  nothing. After restarting the viewer on the same data directory, all 30
+  recorded events were still returned by `/api/bootstrap`.
+- A copy of an existing AgentOps database (634 rows, v2 columns) opened read-write
+  through Ousel: 634 rows and ids were preserved, the five new columns were added,
+  and every old row read as `source: "reported"` with `project`/`task` null.
+
+Not tested: other Claude Code versions, Windows, headless sessions with hooks
+disabled, concurrent migrations, viewer authentication beyond the local guard,
+or a long-running session large enough to exercise history retention.
+
+## Codex and other hosts
+
+There is no automatic capture for Codex in this release. Codex participation is
+visible through the companion reporting skill in
+[`skills/ousel/SKILL.md`](../skills/ousel/SKILL.md), which posts `source: "reported"`
+events. Reported means the agent said so; it is labeled as such in the viewer.
+Do not describe a reported event as captured evidence.

@@ -104,7 +104,6 @@ export function mergeSettings(
             {
               type: "command",
               command,
-              async: true,
               timeout: 5,
               onFailure: "continue",
             },
@@ -161,6 +160,7 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
       options: {
         project: { type: "string" },
         task: { type: "string" },
+        name: { type: "string" },
         url: { type: "string" },
         remove: { type: "boolean" },
         "dry-run": { type: "boolean" },
@@ -168,44 +168,58 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
     });
     if (!values.project || !values.task?.trim())
       throw new Error(
-        "Usage: node --import tsx src/cli/connect.ts --project <dir> --task <slug> [--url http://127.0.0.1:4317] [--remove] [--dry-run]",
+        "Usage: node --import tsx src/cli/connect.ts --project <dir> --task <slug> [--name <project>] [--url http://127.0.0.1:4317] [--remove] [--dry-run]",
       );
     if (values.task.length > 200 || /[\x00-\x1f\x7f]/.test(values.task))
       throw new Error(
         "Task must be at most 200 characters without control characters",
       );
     const url = normalizeUrl(values.url ?? "http://127.0.0.1:4317");
-    let state: ObjectValue;
-    try {
-      state = await health(url);
-    } catch {
-      console.error(
-        "Ousel viewer unavailable. Run `npm start` in the Ousel checkout, then retry this command (use a v3 viewer with /api/health).",
-      );
-      return 1;
+    let state: ObjectValue | null = null;
+    // Removal and a dry run are local edits: neither should depend on a
+    // running viewer. Installation does, because it verifies ingest.
+    if (!values.remove && !values["dry-run"]) {
+      try {
+        state = await health(url);
+      } catch {
+        console.error(
+          "Ousel viewer unavailable. Run `npm start` in the Ousel checkout, then retry this command (use a v3 viewer with /api/health).",
+        );
+        return 1;
+      }
     }
     const project = await realpath(path.resolve(values.project));
     if (!(await lstat(project)).isDirectory())
       throw new Error("Project must be a directory");
-    if (project.length > 200)
+    const projectName = (values.name ?? path.basename(project)).trim();
+    if (
+      !projectName ||
+      projectName.length > 200 ||
+      /[\x00-\x1f\x7f]/.test(projectName)
+    )
       throw new Error(
-        "Project path exceeds the 200-character event contract limit",
+        "Project name must be 1-200 characters without control characters",
       );
     const directory = path.join(project, ".claude");
     const settingsPath = path.join(directory, "settings.json");
     let settings: unknown = {};
+    let settingsMode = 0o600;
     try {
       if (!(await lstat(directory)).isDirectory())
         throw new Error(".claude must be a real directory");
-      if (!(await lstat(settingsPath)).isFile())
+      const info = await lstat(settingsPath);
+      if (!info.isFile())
         throw new Error("settings.json must be a regular file");
+      // Keep a team-shared file's existing permissions; only new files are
+      // created owner-only.
+      settingsMode = info.mode & 0o777;
       settings = JSON.parse(await readFile(settingsPath, "utf8"));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const result = mergeSettings(
       settings,
-      hookCommand(project, values.task, url),
+      hookCommand(projectName, values.task, url),
       HOOK_PATH,
       values.remove,
     );
@@ -219,14 +233,15 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
     try {
       await writeFile(temporary, json, {
         encoding: "utf8",
-        mode: 0o600,
+        mode: settingsMode,
         flag: "wx",
       });
       await rename(temporary, settingsPath);
     } finally {
       await rm(temporary, { force: true });
     }
-    console.log(`Health: ${JSON.stringify(state)}`);
+    if (state) console.log(`Health: ${JSON.stringify(state)}`);
+    else console.log("Health: skipped (local edit mode)");
     console.log(`Settings: ${settingsPath}`);
     console.log(`Ousel hooks: ${values.remove ? 0 : HOOK_EVENTS.length}`);
     if (values.remove) {
@@ -241,7 +256,7 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
           actor: "ousel",
           action: "integration_connected",
           source: "reported",
-          project,
+          project: projectName,
           task: values.task,
           summary: `Claude Code integration connected for task ${values.task}`,
         }),
@@ -250,7 +265,7 @@ export async function connect(args = process.argv.slice(2)): Promise<number> {
       });
       const receipt: unknown = await response.json();
       const accepted =
-        response.status === 200 &&
+        (response.status === 202 || response.status === 200) &&
         isObject(receipt) &&
         receipt.accepted === 1 &&
         Array.isArray(receipt.rejected) &&

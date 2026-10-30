@@ -350,6 +350,32 @@ test("project and task filters only stream that task", async () => {
   });
 });
 
+test("a filtered stream pages past a full window of unrelated events", async () => {
+  await withServer(async (base) => {
+    // The stream reads 200 rows at a time. If an entire first page is
+    // filtered out, the pump must keep going instead of waiting forever.
+    await post(base, {
+      events: Array.from({ length: 205 }, (_, i) => ({
+        actor: `other-${i}`,
+        action: "x",
+        project: "p2",
+        task: "other",
+      })),
+    });
+    await post(base, {
+      actor: "wanted",
+      action: "x",
+      project: "p1",
+      task: "t1",
+    });
+    await readStream(
+      `${base}/api/events?project=p1&task=t1`,
+      '"actor":"wanted"',
+      ['"actor":"other-0"'],
+    );
+  });
+});
+
 test("filters combine with the session filter and the cursor", async () => {
   await withServer(async (base) => {
     await post(base, { actor: "old", action: "x", task: "t", session: "s" });

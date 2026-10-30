@@ -49,35 +49,49 @@ export function resolveConfig(input: ConfigInput): ResolvedConfig {
   const ouselDir = path.join(home, ".ousel");
   const legacyDir = path.join(home, ".agentops");
 
+  const dbIn = (dir: string, name: string) =>
+    exists(path.join(dir, name)) ? name : null;
+  const ouselDb = dbIn(ouselDir, NEW_DB) ?? dbIn(ouselDir, LEGACY_DB);
+  const legacyDb = dbIn(legacyDir, LEGACY_DB) ?? dbIn(legacyDir, NEW_DB);
+
   let dataDir: string;
-  let notice: string | null = null;
   let preferred = NEW_DB;
+  let notice: string | null = null;
 
   const explicit = present(env["OUSEL_DATA_DIR"]);
   const legacyExplicit = present(env["AGENTOPS_DATA_DIR"]);
-  if (explicit !== null) dataDir = path.resolve(explicit);
-  else if (legacyExplicit !== null) {
+  if (explicit !== null) {
+    dataDir = path.resolve(explicit);
+    // An explicit directory still has to find a database that is already in
+    // it, under either name, rather than create an empty one beside it.
+    const here = dbIn(dataDir, NEW_DB) ?? dbIn(dataDir, LEGACY_DB);
+    if (here) preferred = here;
+  } else if (legacyExplicit !== null) {
     dataDir = path.resolve(legacyExplicit);
+    const here = dbIn(dataDir, NEW_DB) ?? dbIn(dataDir, LEGACY_DB);
+    if (here) preferred = here;
     notice = "AGENTOPS_DATA_DIR is the legacy name; prefer OUSEL_DATA_DIR";
+  } else if (ouselDb !== null) {
+    // A real database beats an empty directory: an existing ~/.ousel that
+    // holds no data must not hide ~/.agentops history.
+    dataDir = ouselDir;
+    preferred = ouselDb;
+    if (legacyDb !== null)
+      notice = `Using ${ouselDir}; an older database also exists in ${legacyDir}`;
+  } else if (legacyDb !== null) {
+    dataDir = legacyDir;
+    preferred = legacyDb;
+    notice = `Using legacy data directory ${legacyDir} (no database in ${ouselDir})`;
   } else if (exists(ouselDir)) dataDir = ouselDir;
   else if (exists(legacyDir)) {
     dataDir = legacyDir;
     preferred = LEGACY_DB;
-    notice = `Using legacy data directory ${legacyDir} (no ${ouselDir} found)`;
+    notice = `Using legacy data directory ${legacyDir} (no database in ${ouselDir})`;
   } else dataDir = ouselDir;
-
-  // A directory that holds only the other name keeps using that file, so data
-  // written before the rename is found rather than shadowed by a new database.
-  const other = preferred === NEW_DB ? LEGACY_DB : NEW_DB;
-  const file = exists(path.join(dataDir, preferred))
-    ? preferred
-    : exists(path.join(dataDir, other))
-      ? other
-      : preferred;
 
   return {
     dataDir,
-    dbPath: path.join(dataDir, file),
+    dbPath: path.join(dataDir, preferred),
     port: resolvePort(env),
     notice,
   };

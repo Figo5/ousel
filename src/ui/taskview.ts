@@ -75,6 +75,8 @@ export interface CheckView {
   durationMs: number | null;
   actor: string;
   at: string;
+  /** The source of the event that carried this check. */
+  source: EventSource;
 }
 
 export interface FileView {
@@ -95,6 +97,8 @@ export interface TaskView {
   lastReported: EventRecord | null;
   capturedChecks: number;
   reportedChecks: number;
+  /** Checks from synthetic demo events, never counted as real evidence. */
+  syntheticChecks: number;
   activityCount: number;
 }
 
@@ -121,7 +125,7 @@ export function taskOf(event: EventRecord): string {
 }
 
 export function taskKey(project: string, task: string): string {
-  return `${project}\u0000${task}`;
+  return JSON.stringify([project, task]);
 }
 
 function timeOf(iso: string): number {
@@ -206,17 +210,23 @@ export function foldTaskView(
   const files: FileView[] = [];
 
   for (const event of events) {
-    const entry = byActor.get(event.actor) ?? {
-      sessions: new Set<string>(),
-      sources: new Set<EventSource>(),
-      last: event,
-      lastSummary: null,
-    };
-    if (event.session) entry.sessions.add(event.session);
-    entry.sources.add(event.source);
-    entry.last = event;
-    if (event.summary) entry.lastSummary = event.summary;
-    byActor.set(event.actor, entry);
+    // The integration's own connection receipt is part of the timeline, but
+    // "ousel" is not an agent working on the task. Do not count it as one.
+    const systemReceipt =
+      event.actor === "ousel" && event.action === "integration_connected";
+    if (!systemReceipt) {
+      const entry = byActor.get(event.actor) ?? {
+        sessions: new Set<string>(),
+        sources: new Set<EventSource>(),
+        last: event,
+        lastSummary: null,
+      };
+      if (event.session) entry.sessions.add(event.session);
+      entry.sources.add(event.source);
+      entry.last = event;
+      if (event.summary) entry.lastSummary = event.summary;
+      byActor.set(event.actor, entry);
+    }
 
     if (event.target)
       handoffs.push({
@@ -243,6 +253,7 @@ export function foldTaskView(
         durationMs: check.durationMs,
         actor: event.actor,
         at: event.createdAt,
+        source: event.source,
       });
     for (const file of event.files)
       files.push({
@@ -274,7 +285,8 @@ export function foldTaskView(
         timeOf(b.lastAt) - timeOf(a.lastAt) || a.actor.localeCompare(b.actor),
     );
 
-  const capturedChecks = checks.filter(
+  const realChecks = checks.filter((check) => check.source !== "synthetic");
+  const capturedChecks = realChecks.filter(
     (check) => check.evidence === "captured",
   ).length;
 
@@ -287,7 +299,8 @@ export function foldTaskView(
     files,
     lastReported: events[events.length - 1] ?? null,
     capturedChecks,
-    reportedChecks: checks.length - capturedChecks,
+    reportedChecks: realChecks.length - capturedChecks,
+    syntheticChecks: checks.length - realChecks.length,
     activityCount: events.length,
   };
 }
@@ -370,24 +383,36 @@ export function attentionItems(view: TaskView, now: number): AttentionItem[] {
   const latestVerdict = new Map<string, EventRecord>();
   for (const event of view.events)
     if (event.verdict) latestVerdict.set(event.actor, event);
+  const approvals = view.events.filter(
+    (event) => event.verdict !== null && isApprovalVerdict(event.verdict),
+  );
   let newestApproval: EventRecord | null = null;
   for (const event of latestVerdict.values()) {
     const verdict = event.verdict ?? "";
-    if (isNegativeVerdict(verdict))
+    if (isNegativeVerdict(verdict)) {
+      // A later approval from anyone means the request may have been answered,
+      // but it does not prove the fix addressed this finding. Keep it visible,
+      // lower it, and say exactly what the later evidence is.
+      const later = approvals.find((approval) => approval.id > event.id);
       add({
         id: `verdict:${event.actor}`,
-        tone: "high",
-        title: `${event.actor} reviewed: ${verdict}`,
+        tone: later ? "medium" : "high",
+        title: later
+          ? `${event.actor} requested changes; ${later.actor} later approved`
+          : `${event.actor} reviewed: ${verdict}`,
         detail:
-          event.summary ??
-          (event.issues.length > 0
-            ? `${event.issues.length} finding${event.issues.length === 1 ? "" : "s"} reported.`
-            : "No summary was given."),
+          (event.summary ??
+            (event.issues.length > 0
+              ? `${event.issues.length} finding${event.issues.length === 1 ? "" : "s"} reported.`
+              : "No summary was given.")) +
+          (later
+            ? ` A later approval by ${later.actor} exists; confirm the finding was actually addressed.`
+            : ""),
         source: event.source,
         actor: event.actor,
         at: event.createdAt,
       });
-    else if (
+    } else if (
       isApprovalVerdict(verdict) &&
       (!newestApproval || event.id > newestApproval.id)
     )

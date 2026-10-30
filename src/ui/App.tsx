@@ -24,6 +24,7 @@ import {
 import { Field } from "./components/Field.js";
 import {
   AttentionList,
+  Evidence,
   Participants,
   SummaryStrip,
   Timeline,
@@ -85,7 +86,13 @@ function CardView({
           </Pill>
         ) : null}
         <SourceBadge source={card.source} />
-        {card.awaitingYou ? <Pill tone="warn">Blocked</Pill> : null}
+        {card.status === "blocked" ? (
+          <Pill tone="warn">Blocked</Pill>
+        ) : card.tone === "danger" ? (
+          <Pill tone="danger">Failed</Pill>
+        ) : card.awaitingYou ? (
+          <Pill tone="warn">Unresolved</Pill>
+        ) : null}
         <span className="faint small card-row__time">
           {relativeTime(card.createdAt, now)}
         </span>
@@ -286,7 +293,9 @@ export function App() {
   const visibleCards = actor
     ? state.cards.filter((card) => card.actor === actor)
     : state.cards;
-  const blocked = state.cards.filter((card) => card.awaitingYou).length;
+  const blocked = state.cards.filter(
+    (card) => card.status === "blocked" && card.awaitingYou,
+  ).length;
 
   // Render the shell immediately, from whatever has arrived: a slow or stalled
   // bootstrap must never wall the whole page behind a spinner. Only a bootstrap
@@ -412,6 +421,7 @@ export function App() {
               </div>
               <aside className="task__side" aria-label="Participants and field">
                 <Participants participants={taskView.participants} now={tick} />
+                <Evidence view={taskView} now={tick} />
                 <section className="panel">
                   <div className="column__head">
                     <h2>Constellation</h2>

@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
 
-const secretLike =
-  /(?:token|secret|password|passwd|authorization|api[-_]?key|credential|private[-_ ]key|\bBearer\s|\bBasic\s|\bsk-[\w-]+|\bgh[pousr]_[\w]+|\bAKIA[\w]+|\beyJ[\w-]+\.[\w-]+\.|:\/\/[^\s/]+@)/i;
+// Strong credential shapes, regardless of surrounding words.
+const secretValue =
+  /(?:\bBearer\s+\S|\bBasic\s+\S|\bsk-[\w-]{8,}|\bgh[pousr]_[\w]{8,}|\bAKIA[\w]{8,}|\beyJ[\w-]+\.[\w-]+\.|:\/\/[^\s/]+@)/;
+// A keyword only redacts when it is being assigned a value. This keeps paths
+// such as src/auth/token.ts and summaries such as "token refresh fix" intact.
+const secretAssignment =
+  /\b(?:token|secret|password|passwd|authorization|api[-_]?key|credential|private[-_ ]key)\b\s*[:=]\s*\S{4,}|--?(?:token|secret|password|api[-_]?key|credential)\b\s+\S+/i;
 
 // Prefer dropping a suspicious field to partially exposing a credential.
 export function clean(value, max = 200) {
   if (typeof value !== "string") return undefined;
-  if (secretLike.test(value)) return "[redacted]";
+  if (secretValue.test(value) || secretAssignment.test(value))
+    return "[redacted]";
   return (
     value
       .replace(/[\x00-\x1f\x7f]/g, " ")
@@ -45,7 +51,9 @@ export function isValidationCommand(command) {
         tokens.includes("--test") &&
         !tokens.some((t) => ["-e", "--eval", "-p", "--print"].includes(t))
       );
-    return validation.test(bin ?? "");
+    // Only known runners count. A bare `test`, `build`, `lint` or `check` is
+    // often a shell builtin or another tool, and must not become evidence.
+    return ["tsc", "vitest"].includes(bin ?? "");
   });
 }
 
@@ -84,6 +92,17 @@ export function mapHook(payload, env = {}) {
       const tool = clean(payload.tool_name);
       if (!tool) return null;
       const failed = payload.hook_event_name === "PostToolUseFailure";
+      // Subagent tool calls arrive with the parent's session_id plus their own
+      // agent_id/agent_type. Attribute them to the subagent, not the parent.
+      if (payload.agent_id) {
+        const type = clean(payload.agent_type, 193);
+        const id = clean(payload.agent_id);
+        if (type && id) {
+          event.actor = `claude:${type}`;
+          event.session = id;
+          event.parent = actor;
+        }
+      }
       const detail = { tool };
       if (Number.isSafeInteger(payload.duration_ms) && payload.duration_ms >= 0)
         detail.durationMs = payload.duration_ms;
@@ -210,7 +229,8 @@ if (
   process.on("unhandledRejection", exit);
   process.on("SIGTERM", exit);
   process.on("SIGINT", exit);
-  // Async command hooks have no host-enforced timeout, including stalled stdin.
+  // The hook is a synchronous command hook, so this deadline also keeps a
+  // stalled stdin or half-open viewer from holding up the tool call.
   setTimeout(exit, 2500);
   runHook().then(exit, exit);
 }
