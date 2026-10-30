@@ -19,11 +19,12 @@ Silence means **stale or unknown** — never "blocked", never "done".
                           ● reviewer   ◉ ← verdict flare
 ```
 
-[![Recorded constellation with activity and handoff edges](docs/demo-preview.gif)](docs/demo.mp4)
+![Ousel task view with a synthetic demo workflow](docs/ousel-preview.png)
 
-**[▶ Watch the full 53-second demo](docs/demo.mp4)** — recorded example
-activity with six actors and four provider labels. These labels describe
-reported events; the viewer does not connect to or launch those providers.
+A real Claude/Codex review session, with screenshots and what the viewer did and
+did not make clear, is recorded in [docs/real-session.md](docs/real-session.md).
+The older `docs/demo.mp4` was recorded before the rename and is kept as history;
+it shows the previous product name.
 
 > **Handing this to a coding agent?** [AGENTS.md](AGENTS.md) takes it from clone
 > to running to reporting. To connect Claude Code, see
