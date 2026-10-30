@@ -1,0 +1,216 @@
+#!/usr/bin/env node
+import { pathToFileURL } from "node:url";
+
+const secretLike =
+  /(?:token|secret|password|passwd|authorization|api[-_]?key|credential|private[-_ ]key|\bBearer\s|\bBasic\s|\bsk-[\w-]+|\bgh[pousr]_[\w]+|\bAKIA[\w]+|\beyJ[\w-]+\.[\w-]+\.|:\/\/[^\s/]+@)/i;
+
+// Prefer dropping a suspicious field to partially exposing a credential.
+export function clean(value, max = 200) {
+  if (typeof value !== "string") return undefined;
+  if (secretLike.test(value)) return "[redacted]";
+  return (
+    value
+      .replace(/[\x00-\x1f\x7f]/g, " ")
+      .trim()
+      .slice(0, max) || undefined
+  );
+}
+
+// Deliberately conservative: do not mistake `echo "npm test"` for a test run.
+// Complex shell programs cannot be classified reliably without a shell parser.
+export function isValidationCommand(command) {
+  if (typeof command !== "string" || command.length > 32_768) return false;
+  if (
+    /[\n\r;|`$<>]/.test(command) ||
+    command.replaceAll("&&", "").includes("&")
+  )
+    return false;
+  const parts = command.split("&&");
+  return parts.every((part, index) => {
+    const tokens = part.match(/(?:[^\s'"\\]+|'[^']*'|"[^"]*")+/g) ?? [];
+    if (tokens.join(" ") !== part.trim().replace(/\s+/g, " ")) return false;
+    while (/^[A-Za-z_][\w]*=/.test(tokens[0] ?? "")) tokens.shift();
+    const [bin, arg, script] = tokens;
+    const validation =
+      /^(?:test|build|lint|typecheck|check|tsc|vitest)(?::[\w-]+)?$/;
+    if (bin === "cd")
+      return (
+        parts.length > 1 && index < parts.length - 1 && tokens.length === 2
+      );
+    if (["npm", "pnpm", "yarn", "bun"].includes(bin))
+      return validation.test(arg === "run" ? (script ?? "") : (arg ?? ""));
+    if (bin === "npx") return ["tsc", "vitest"].includes(arg);
+    if (bin === "node")
+      return (
+        tokens.includes("--test") &&
+        !tokens.some((t) => ["-e", "--eval", "-p", "--print"].includes(t))
+      );
+    return validation.test(bin ?? "");
+  });
+}
+
+/** Pure whitelist mapping. Never read transcripts or spread tool payloads. */
+export function mapHook(payload, env = {}) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return null;
+  const actor = clean(env.OUSEL_ACTOR) ?? "claude-code";
+  const event = { actor, source: "captured", provider: "claude" };
+  for (const [key, value] of Object.entries({
+    session: payload.session_id,
+    project: env.OUSEL_PROJECT,
+    task: env.OUSEL_TASK,
+  })) {
+    const safe = clean(value);
+    if (safe) event[key] = safe;
+  }
+  switch (payload.hook_event_name) {
+    case "SessionStart":
+      return {
+        ...event,
+        action: "session_start",
+        status: "running",
+        summary: "Claude Code session started",
+      };
+    case "UserPromptSubmit":
+      if (typeof payload.prompt !== "string") return null;
+      return {
+        ...event,
+        action: "prompt_submitted",
+        status: "running",
+        summary: `Prompt submitted (${payload.prompt.length} chars)`,
+      };
+    case "PostToolUse":
+    case "PostToolUseFailure": {
+      const tool = clean(payload.tool_name);
+      if (!tool) return null;
+      const failed = payload.hook_event_name === "PostToolUseFailure";
+      const detail = { tool };
+      if (Number.isSafeInteger(payload.duration_ms) && payload.duration_ms >= 0)
+        detail.durationMs = payload.duration_ms;
+      const result = {
+        ...event,
+        action: failed ? "tool_failed" : "tool_completed",
+        status: failed ? "error" : "ok",
+        summary: `${tool} ${failed ? "failed" : "completed"}`,
+        detail,
+      };
+      const input = payload.tool_input;
+      if (["Read", "Edit", "Write", "NotebookEdit"].includes(tool)) {
+        const path = clean(
+          tool === "NotebookEdit" ? input?.notebook_path : input?.file_path,
+          1000,
+        );
+        if (path) {
+          detail.path = path;
+          if (!failed && ["Edit", "Write", "NotebookEdit"].includes(tool))
+            result.files = [{ path, change: "modified" }];
+        }
+      }
+      if (
+        tool === "Bash" &&
+        input?.run_in_background !== true &&
+        !payload.tool_response?.backgroundTaskId &&
+        !payload.tool_response?.interrupted &&
+        isValidationCommand(input?.command)
+      ) {
+        const command = clean(input.command, 1000);
+        const check = {
+          name: command.slice(0, 200),
+          result: failed ? "failed" : "passed",
+          evidence: "captured",
+          command,
+        };
+        if (detail.durationMs !== undefined)
+          check.durationMs = detail.durationMs;
+        result.checks = [check];
+      }
+      return result;
+    }
+    case "SubagentStart":
+    case "SubagentStop": {
+      const type = clean(payload.agent_type, 193);
+      const session = clean(payload.agent_id);
+      if (!type || !session) return null;
+      const stopped = payload.hook_event_name === "SubagentStop";
+      return {
+        ...event,
+        actor: `claude:${type}`,
+        session,
+        parent: actor,
+        action: stopped ? "subagent_stop" : "subagent_start",
+        status: stopped ? "ok" : "running",
+        summary: `Subagent ${type} ${stopped ? "stopped" : "started"}`,
+      };
+    }
+    case "Stop":
+      return {
+        ...event,
+        action: "turn_complete",
+        status: "ok",
+        summary: "Claude Code finished responding",
+      };
+    case "SessionEnd":
+      return {
+        ...event,
+        action: "session_end",
+        status: "ok",
+        summary: "Claude Code session ended",
+      };
+    default:
+      return null;
+  }
+}
+
+export function viewerUrl(raw = "http://127.0.0.1:4317") {
+  const url = new URL(raw);
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  )
+    throw new Error("Invalid viewer URL");
+  return url.href.replace(/\/$/, "");
+}
+
+export async function runHook(input = process.stdin, env = process.env) {
+  try {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of input) {
+      size += Buffer.byteLength(chunk);
+      if (size > 1024 * 1024) return;
+      chunks.push(Buffer.from(chunk));
+    }
+    const event = mapHook(
+      JSON.parse(Buffer.concat(chunks).toString("utf8")),
+      env,
+    );
+    if (!event) return;
+    const response = await fetch(`${viewerUrl(env.OUSEL_URL)}/ingest`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(event),
+      signal: AbortSignal.timeout(1500),
+      redirect: "error",
+    });
+    await response.body?.cancel();
+  } catch {
+    // Capture is best effort. No output can be interpreted as a hook decision.
+  }
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  const exit = () => process.exit(0);
+  process.on("uncaughtException", exit);
+  process.on("unhandledRejection", exit);
+  process.on("SIGTERM", exit);
+  process.on("SIGINT", exit);
+  // Async command hooks have no host-enforced timeout, including stalled stdin.
+  setTimeout(exit, 2500);
+  runHook().then(exit, exit);
+}
