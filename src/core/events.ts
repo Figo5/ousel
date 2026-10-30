@@ -28,6 +28,33 @@ export interface EventIssue {
   line: number | null;
 }
 
+/**
+ * How Ousel learned of an event. `inferred` is deliberately absent: it is
+ * never stored, only derived by the viewer and labelled as such.
+ */
+export const EVENT_SOURCES = ["captured", "reported", "synthetic"] as const;
+export type EventSource = (typeof EVENT_SOURCES)[number];
+
+/** Whether a check result was observed by an integration or merely claimed. */
+export const CHECK_EVIDENCE = ["captured", "reported"] as const;
+export type CheckEvidence = (typeof CHECK_EVIDENCE)[number];
+
+/** A reference to a changed file. */
+export interface EventFile {
+  path: string;
+  /** Free-form: "added", "modified", "deleted", … */
+  change: string | null;
+}
+
+/** Validation evidence attached to an event. */
+export interface EventCheck {
+  name: string;
+  result: string;
+  evidence: CheckEvidence;
+  command: string | null;
+  durationMs: number | null;
+}
+
 /** An accepted event, after validation and redaction. */
 export interface IngestedEvent {
   /** Who acted. One star in the field. Required. */
@@ -48,6 +75,14 @@ export interface IngestedEvent {
   /** Free-form: "approve", "reject", "needs-fixes", "pass", "fail", … */
   verdict: string | null;
   issues: EventIssue[];
+  /** How this was learned. Absent on the wire means "reported". */
+  source: EventSource;
+  /** Project identity; null for legacy events. */
+  project: string | null;
+  /** Shared task identity within the project; null for legacy events. */
+  task: string | null;
+  files: EventFile[];
+  checks: EventCheck[];
   /** Anything else the sender wanted to keep, shown on demand. */
   detail: Record<string, unknown>;
 }
@@ -74,6 +109,14 @@ const LIMITS = {
   description: 2000,
   path: 1000,
   issues: 50,
+  project: 200,
+  task: 200,
+  files: 50,
+  change: 40,
+  checks: 20,
+  checkName: 200,
+  checkResult: 40,
+  command: 1000,
   detailBytes: 16_384,
 } as const;
 
@@ -148,6 +191,114 @@ function readIssues(raw: unknown, errors: string[]): EventIssue[] {
   return issues;
 }
 
+function readFiles(raw: unknown, errors: string[]): EventFile[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    errors.push("files must be an array when present");
+    return [];
+  }
+  const files: EventFile[] = [];
+  for (const [index, item] of raw.slice(0, LIMITS.files).entries()) {
+    if (!isPlainObject(item)) {
+      errors.push(`files[${index}] must be an object`);
+      continue;
+    }
+    const filePath = readString(
+      item["path"],
+      `files[${index}].path`,
+      LIMITS.path,
+      errors,
+    );
+    if (!filePath) {
+      errors.push(`files[${index}].path is required`);
+      continue;
+    }
+    files.push({
+      path: filePath,
+      change: readString(
+        item["change"],
+        `files[${index}].change`,
+        LIMITS.change,
+        errors,
+      ),
+    });
+  }
+  return files;
+}
+
+function readChecks(raw: unknown, errors: string[]): EventCheck[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    errors.push("checks must be an array when present");
+    return [];
+  }
+  const checks: EventCheck[] = [];
+  for (const [index, item] of raw.slice(0, LIMITS.checks).entries()) {
+    if (!isPlainObject(item)) {
+      errors.push(`checks[${index}] must be an object`);
+      continue;
+    }
+    const name = readString(
+      item["name"],
+      `checks[${index}].name`,
+      LIMITS.checkName,
+      errors,
+    );
+    if (!name) {
+      errors.push(`checks[${index}].name is required`);
+      continue;
+    }
+    const result = readString(
+      item["result"],
+      `checks[${index}].result`,
+      LIMITS.checkResult,
+      errors,
+    );
+    if (!result) {
+      errors.push(`checks[${index}].result is required`);
+      continue;
+    }
+    let evidence: CheckEvidence = "reported";
+    const evidenceRaw = item["evidence"];
+    if (evidenceRaw !== undefined && evidenceRaw !== null) {
+      const candidate = String(evidenceRaw).trim().toLowerCase();
+      if ((CHECK_EVIDENCE as readonly string[]).includes(candidate))
+        evidence = candidate as CheckEvidence;
+      else
+        errors.push(
+          `checks[${index}].evidence must be one of ${CHECK_EVIDENCE.join(", ")}`,
+        );
+    }
+    let durationMs: number | null = null;
+    const durationRaw = item["durationMs"];
+    if (durationRaw !== undefined && durationRaw !== null) {
+      if (
+        typeof durationRaw === "number" &&
+        Number.isInteger(durationRaw) &&
+        durationRaw >= 0
+      )
+        durationMs = durationRaw;
+      else
+        errors.push(
+          `checks[${index}].durationMs must be a non-negative integer`,
+        );
+    }
+    checks.push({
+      name,
+      result,
+      evidence,
+      command: readString(
+        item["command"],
+        `checks[${index}].command`,
+        LIMITS.command,
+        errors,
+      ),
+      durationMs,
+    });
+  }
+  return checks;
+}
+
 /**
  * Validates one posted event.
  *
@@ -174,7 +325,28 @@ export function validateEvent(raw: unknown): Validation<IngestedEvent> {
     else errors.push(`status must be one of ${EVENT_STATUSES.join(", ")}`);
   }
 
+  // Absent means "reported" so old clients keep working. `inferred` is named in
+  // the error because it is the value a well-meaning sender is most likely to
+  // try: only the viewer may infer, and it never stores the result.
+  let source: EventSource = "reported";
+  const sourceRaw = raw["source"];
+  if (sourceRaw !== undefined && sourceRaw !== null) {
+    const candidate = String(sourceRaw).trim().toLowerCase();
+    if ((EVENT_SOURCES as readonly string[]).includes(candidate))
+      source = candidate as EventSource;
+    else if (candidate === "inferred")
+      errors.push(
+        `source "inferred" is not accepted: only the viewer infers, and never stores it. Use one of ${EVENT_SOURCES.join(", ")}`,
+      );
+    else errors.push(`source must be one of ${EVENT_SOURCES.join(", ")}`);
+  }
+
   const known = new Set([
+    "source",
+    "project",
+    "task",
+    "files",
+    "checks",
     "actor",
     "action",
     "session",
@@ -201,6 +373,10 @@ export function validateEvent(raw: unknown): Validation<IngestedEvent> {
     if (!known.has(key)) detail[key] = value;
 
   const issues = readIssues(raw["issues"], errors);
+  const files = readFiles(raw["files"], errors);
+  const checks = readChecks(raw["checks"], errors);
+  const project = readString(raw["project"], "project", LIMITS.project, errors);
+  const task = readString(raw["task"], "task", LIMITS.task, errors);
 
   let safeDetail: Record<string, unknown> = {};
   try {
@@ -234,6 +410,11 @@ export function validateEvent(raw: unknown): Validation<IngestedEvent> {
       status,
       verdict: readString(raw["verdict"], "verdict", LIMITS.verdict, errors),
       issues,
+      source,
+      project,
+      task,
+      files,
+      checks,
       detail: safeDetail,
     },
   };

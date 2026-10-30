@@ -32,6 +32,11 @@ function event(partial: Partial<EventRecord> & { actor: string }): EventRecord {
     status: null,
     verdict: null,
     issues: [],
+    source: "reported",
+    project: null,
+    task: null,
+    files: [],
+    checks: [],
     detail: {},
     ...partial,
   };

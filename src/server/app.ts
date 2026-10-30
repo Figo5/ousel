@@ -1,11 +1,12 @@
 /**
  * The whole service: take events in, fan them out, serve the field.
  *
- * Four routes.
+ * Five routes.
  *
  *   POST /ingest        one event, or an array of them
  *   GET  /api/events    SSE, resumable with Last-Event-ID
  *   GET  /api/bootstrap the token and the recent window
+ *   GET  /api/health    liveness and counts, for diagnostics and scripts
  *   GET  /*             the built client
  *
  * It orchestrates nothing and never launches a process. That is the point: an
@@ -29,6 +30,19 @@ export interface AppOptions {
 const BOOTSTRAP_WINDOW = 400;
 /** Maximum events accepted in one POST. */
 const MAX_BATCH = 100;
+/** Reported by `/api/health` and `/api/bootstrap`. */
+export const VERSION = "3.0.0";
+/** Longest `session`, `project` or `task` filter accepted on a query string. */
+const MAX_FILTER = 200;
+
+/** Reads an optional filter parameter; absent or empty means "no filter". */
+function filterParam(url: URL, name: string): string | null {
+  const value = url.searchParams.get(name);
+  if (value === null || value === "") return null;
+  if (value.length > MAX_FILTER || value.includes("\0"))
+    throw new HttpError(400, `Invalid ${name} filter`);
+  return value;
+}
 
 const CLIENT_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -110,17 +124,31 @@ export function createApp(options: AppOptions = {}) {
         );
       }
 
+      if (url.pathname === "/api/health" && method === "GET")
+        return json(res, {
+          ok: true,
+          version: VERSION,
+          latestId: store.latestId(),
+          total: store.count(),
+        });
+
       if (url.pathname === "/api/bootstrap" && method === "GET")
         return json(res, {
           token: guard.token,
-          version: "2.0.0",
-          events: store.list({ limit: BOOTSTRAP_WINDOW }),
+          version: VERSION,
+          events: store.list({
+            limit: BOOTSTRAP_WINDOW,
+            project: filterParam(url, "project"),
+            task: filterParam(url, "task"),
+          }),
           latestId: store.latestId(),
           total: store.count(),
         });
 
       if (url.pathname === "/api/events" && method === "GET") {
-        const session = url.searchParams.get("session");
+        const session = filterParam(url, "session");
+        const project = filterParam(url, "project");
+        const task = filterParam(url, "task");
         let cursor = Number(
           req.headers["last-event-id"] ?? url.searchParams.get("afterId") ?? 0,
         );
@@ -139,6 +167,8 @@ export function createApp(options: AppOptions = {}) {
             for (const event of store.since(cursor)) {
               cursor = event.id;
               if (session && event.session !== session) continue;
+              if (project && event.project !== project) continue;
+              if (task && event.task !== task) continue;
               if (
                 !res.write(
                   `id: ${event.id}\nevent: event\ndata: ${JSON.stringify(event)}\n\n`,

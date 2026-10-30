@@ -21,8 +21,39 @@ export interface EventQuery {
   /** Exclusive cursor: only events with a higher id are returned. */
   afterId?: number;
   session?: string | null;
+  project?: string | null;
+  task?: string | null;
   limit?: number;
 }
+
+/**
+ * Columns added after the first v2 schema. An existing database is upgraded in
+ * place by adding whichever of these it lacks; the table is never recreated.
+ */
+const ADDED_COLUMNS: readonly { name: string; definition: string }[] = [
+  { name: "project", definition: "TEXT" },
+  { name: "task", definition: "TEXT" },
+  { name: "source", definition: "TEXT NOT NULL DEFAULT 'reported'" },
+  { name: "files", definition: "TEXT NOT NULL DEFAULT '[]'" },
+  { name: "checks", definition: "TEXT NOT NULL DEFAULT '[]'" },
+];
+
+/** Columns every v2 database has. Without them the table is not migratable. */
+const V2_COLUMNS = [
+  "id",
+  "created_at",
+  "actor",
+  "action",
+  "session",
+  "provider",
+  "target",
+  "parent",
+  "summary",
+  "status",
+  "verdict",
+  "issues",
+  "detail",
+] as const;
 
 /** Hard ceiling on one query, so a client cannot ask for the whole history. */
 const MAX_LIMIT = 1000;
@@ -40,6 +71,11 @@ interface Row {
   status: string | null;
   verdict: string | null;
   issues: string;
+  project: string | null;
+  task: string | null;
+  source: string | null;
+  files: string | null;
+  checks: string | null;
   detail: string;
 }
 
@@ -59,6 +95,11 @@ function toRecord(row: Row): EventRecord {
     // Stored as JSON text: parsed back defensively so one unreadable row
     // cannot take down a whole query.
     issues: parseJson(row.issues, []) as EventRecord["issues"],
+    source: toSource(row.source),
+    project: row.project ?? null,
+    task: row.task ?? null,
+    files: parseArray(row.files) as EventRecord["files"],
+    checks: parseArray(row.checks) as EventRecord["checks"],
     detail: parseJson(row.detail, {}) as Record<string, unknown>,
   };
 }
@@ -69,6 +110,17 @@ function parseJson(text: string, fallback: unknown): unknown {
   } catch {
     return fallback;
   }
+}
+
+function parseArray(text: string | null): unknown[] {
+  if (text === null || text === undefined) return [];
+  const parsed = parseJson(text, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+/** Anything unrecognised reads as "reported", the pre-v3 meaning of every row. */
+function toSource(value: string | null): EventRecord["source"] {
+  return value === "captured" || value === "synthetic" ? value : "reported";
 }
 
 export class Store {
@@ -93,22 +145,66 @@ export class Store {
           status TEXT,
           verdict TEXT,
           issues TEXT NOT NULL DEFAULT '[]',
+          project TEXT,
+          task TEXT,
+          source TEXT NOT NULL DEFAULT 'reported',
+          files TEXT NOT NULL DEFAULT '[]',
+          checks TEXT NOT NULL DEFAULT '[]',
           detail TEXT NOT NULL DEFAULT '{}'
         );
+      `);
+      this.migrate();
+      this.db.exec(`
         CREATE INDEX IF NOT EXISTS events_session_idx ON events (session, id);
         CREATE INDEX IF NOT EXISTS events_actor_idx ON events (actor, id);
+        CREATE INDEX IF NOT EXISTS events_task_idx ON events (project, task, id);
       `);
     } catch (cause) {
-      // A database written by an older AgentOps has an `events` table without
-      // these columns, so `CREATE TABLE IF NOT EXISTS` finds one and the index
-      // then fails. Say what to do instead of surfacing a bare SQL error.
+      // A database written before the v2 schema has an `events` table without
+      // the base columns, so `CREATE TABLE IF NOT EXISTS` finds one and the
+      // migration or index then fails. Say what to do instead of surfacing a
+      // bare SQL error.
       const where = options.path ?? ":memory:";
       throw new Error(
         `Could not initialise the events table in ${where}. If this database ` +
           `was written by an older AgentOps, move it aside (or set ` +
-          `AGENTOPS_DATA_DIR to a new directory) and start again. Underlying ` +
+          `OUSEL_DATA_DIR to a new directory) and start again. Underlying ` +
           `error: ${cause instanceof Error ? cause.message : String(cause)}`,
       );
+    }
+  }
+
+  /**
+   * Brings a v2 database up to date in place: inspect the columns, add what is
+   * missing, all inside one transaction so a failure leaves the file as it was.
+   * Existing rows take the column defaults — `source = 'reported'`, empty
+   * `files`/`checks`, null `project`/`task` — which is what they always meant.
+   */
+  private migrate(): void {
+    const columns = new Set(
+      (
+        this.db.prepare(`PRAGMA table_info(events)`).all() as unknown as {
+          name: string;
+        }[]
+      ).map((column) => column.name),
+    );
+    const missingBase = V2_COLUMNS.filter((name) => !columns.has(name));
+    if (missingBase.length > 0)
+      throw new Error(
+        `the events table predates the v2 schema (missing ${missingBase.join(", ")})`,
+      );
+    const missing = ADDED_COLUMNS.filter((column) => !columns.has(column.name));
+    if (missing.length === 0) return;
+    this.db.exec("BEGIN");
+    try {
+      for (const column of missing)
+        this.db.exec(
+          `ALTER TABLE events ADD COLUMN ${column.name} ${column.definition}`,
+        );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
 
@@ -117,8 +213,9 @@ export class Store {
     const statement = this.db.prepare(`
       INSERT INTO events
         (created_at, actor, action, session, provider, target, parent,
-         summary, status, verdict, issues, detail)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         summary, status, verdict, issues, project, task, source, files,
+         checks, detail)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `);
     const row = statement.get(
@@ -133,6 +230,11 @@ export class Store {
       event.status,
       event.verdict,
       JSON.stringify(event.issues),
+      event.project,
+      event.task,
+      event.source,
+      JSON.stringify(event.files),
+      JSON.stringify(event.checks),
       JSON.stringify(event.detail),
     ) as unknown as Row;
     return toRecord(row);
@@ -143,16 +245,26 @@ export class Store {
     const afterId = Math.max(0, Math.trunc(query.afterId ?? 0));
     // Newest-first with a limit, then reversed: a fresh client gets the most
     // recent window rather than the oldest events in the database.
-    const rows = query.session
-      ? (this.db
-          .prepare(
-            `SELECT * FROM events WHERE id > ? AND session = ?
-             ORDER BY id DESC LIMIT ?`,
-          )
-          .all(afterId, query.session, limit) as unknown as Row[])
-      : (this.db
-          .prepare(`SELECT * FROM events WHERE id > ? ORDER BY id DESC LIMIT ?`)
-          .all(afterId, limit) as unknown as Row[]);
+    const where = ["id > ?"];
+    const params: (string | number)[] = [afterId];
+    if (query.session) {
+      where.push("session = ?");
+      params.push(query.session);
+    }
+    if (query.project) {
+      where.push("project = ?");
+      params.push(query.project);
+    }
+    if (query.task) {
+      where.push("task = ?");
+      params.push(query.task);
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events WHERE ${where.join(" AND ")}
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(...params, limit) as unknown as Row[];
     return rows.map(toRecord).reverse();
   }
 

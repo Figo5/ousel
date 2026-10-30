@@ -1,12 +1,12 @@
-# Setting up AgentOps
+# Setting up Ousel
 
 You are a coding agent and someone asked you to set this up. This file is
 everything you need. Work through it in order; each step says what success looks
 like, so you can tell whether it worked rather than guessing.
 
-AgentOps is a viewer that runs on this machine. Agents post what they are doing
-to it over HTTP and appear as stars in a live field. It orchestrates nothing and
-launches nothing, so setting it up cannot affect anything else you are running.
+Ousel is a viewer that runs on this machine. Agents post what they are doing
+to it over HTTP and it organizes that by project and task. It orchestrates
+nothing and launches nothing, so setting it up cannot affect anything else you are running.
 
 ## 1. Check the requirements
 
@@ -38,7 +38,7 @@ or in its own terminal.
 
 If it exits instead, read the error. The two likely causes are a Node version
 below 24, and port 4317 already in use — in which case start it as
-`AGENTOPS_PORT=4318 npm start` and use that port everywhere below.
+`OUSEL_PORT=4318 npm start` and use that port everywhere below.
 
 ## 3. Verify it works
 
@@ -57,18 +57,19 @@ curl -s localhost:4317/ingest \
 Now confirm it is stored:
 
 ```bash
+curl -s localhost:4317/api/health
 curl -s localhost:4317/api/bootstrap | head -c 200
 ```
 
 **Success:** JSON containing `"actor":"setup-check"`.
 
-If you can open a browser, <http://127.0.0.1:4317> shows a star labelled
-`setup-check`. If you cannot, the two curls above are a complete verification —
+If you can open a browser, <http://127.0.0.1:4317> shows a `setup-check`
+event in the task view. If you cannot, the two curls above are a complete verification —
 do not report failure merely because you could not look at it.
 
 ## 4. Tell the human it is ready
 
-Say that AgentOps is running at <http://127.0.0.1:4317>, that they should open
+Say that Ousel is running at <http://127.0.0.1:4317>, that they should open
 it, and that any agent can now report into it. If you changed the port, say so.
 
 ## 5. Report your own work into it
@@ -122,7 +123,7 @@ response code. The running server serves it at
 
 ## Working on this codebase
 
-Only relevant if you were asked to change AgentOps itself.
+Only relevant if you were asked to change Ousel itself.
 
 ```bash
 npm run dev       # server, watched
@@ -137,25 +138,35 @@ pass locally, CI passes.
 
 **Where things are**
 
-| Path                          | What it owns                                   |
-| ----------------------------- | ---------------------------------------------- |
-| `src/core/events.ts`          | the event model and all validation             |
-| `src/db/store.ts`             | one append-only SQLite table                   |
-| `src/server/app.ts`           | `/ingest`, SSE, the static client              |
-| `src/ui/constellation.ts`     | stream → stars, edges, cards (pure, tested)    |
-| `src/ui/components/Field.tsx` | the canvas                                     |
-| `src/ui/App.tsx`              | the one screen                                 |
-| `src/ui/theme.css`            | greyscale chrome; the field has its own colour |
+| Path                               | What it owns                                    |
+| ---------------------------------- | ----------------------------------------------- |
+| `src/core/events.ts`               | the event model and all validation              |
+| `src/db/store.ts`                  | one append-only SQLite table, migrated in place |
+| `src/server/app.ts`                | `/ingest`, SSE, the static client               |
+| `src/ui/constellation.ts`          | stream → stars, edges, cards (pure, tested)     |
+| `src/ui/taskview.ts`               | stream → task view, attention (pure, tested)    |
+| `src/server/config.ts`             | data dir / port resolution (pure, tested)       |
+| `src/ui/components/TaskPanels.tsx` | task view panels                                |
+| `src/ui/components/Field.tsx`      | the canvas                                      |
+| `src/ui/App.tsx`                   | the one screen, Task and Field views            |
+| `src/ui/theme.css`                 | greyscale chrome; the field has its own colour  |
 
 **Conventions that matter here**
 
-- `src/ui/constellation.ts` is pure and stays that way — no React, no DOM, no
+- `src/ui/constellation.ts` and `src/ui/taskview.ts` are pure and stay that way — no React, no DOM, no
   network. That is how the whole picture is tested in Node without a browser.
-  Put rendering in `Field.tsx` and decisions in `constellation.ts`.
+  Put rendering in `Field.tsx` and decisions in those two modules.
 - **Never invent data the stream did not report.** An absent field renders as an
   absence, not a default. Anything derived rather than reported is labelled as
   such — see the `sequence` edge kind, which exists precisely so a guessed
   relationship can be drawn as weaker than a stated one.
+- **Source and evidence.** Every event has a `source` (`captured`, `reported`,
+  `synthetic`; absent means `reported`) and every check an `evidence`. Never
+  upgrade `reported` to `captured`, never accept `inferred` from a sender, and
+  never treat a verdict as test evidence. The only inferred state is "quiet",
+  derived in `taskview.ts`, labelled as inferred, and never shown as blocked.
+- **Ousel never launches agents.** It receives, organizes and displays.
+  Do not add spawning, routing or orchestration.
 - The chrome is greyscale, so no state may depend on hue: every tone is also a
   glyph and a border treatment. The field is the one coloured surface and keeps
   its own palette in `Field.tsx`, deliberately separate from the CSS tokens.

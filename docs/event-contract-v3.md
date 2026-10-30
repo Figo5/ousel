@@ -11,13 +11,13 @@ Unknown top-level keys still fold into `detail`.
 
 ## New optional fields
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `source` | `captured` \| `reported` \| `synthetic` | How Ousel learned this. Absent means `reported` for backward compatibility. `inferred` is never stored. |
-| `project` | string (200) | Project identity. Absent means legacy/unassigned. |
-| `task` | string (200) | Shared task identity within the project. Absent means legacy/unassigned. |
-| `files` | array (50) of `{ path, change? }` | References to changed files. `path` required, 1000 chars. `change` is free-form, 40 chars (`added`, `modified`, `deleted`, …). |
-| `checks` | array (20) of `{ name, result, evidence, command?, durationMs? }` | Validation evidence. `name` and `result` required (200/40 chars). `evidence` is `captured` or `reported`; absent means `reported`. `command` 1000 chars, `durationMs` non-negative integer. |
+| Field     | Type                                                              | Meaning                                                                                                                                                                                     |
+| --------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`  | `captured` \| `reported` \| `synthetic`                           | How Ousel learned this. Absent means `reported` for backward compatibility. `inferred` is never stored.                                                                                     |
+| `project` | string (200)                                                      | Project identity. Absent means legacy/unassigned.                                                                                                                                           |
+| `task`    | string (200)                                                      | Shared task identity within the project. Absent means legacy/unassigned.                                                                                                                    |
+| `files`   | array (50) of `{ path, change? }`                                 | References to changed files. `path` required, 1000 chars. `change` is free-form, 40 chars (`added`, `modified`, `deleted`, …).                                                              |
+| `checks`  | array (20) of `{ name, result, evidence, command?, durationMs? }` | Validation evidence. `name` and `result` required (200/40 chars). `evidence` is `captured` or `reported`; absent means `reported`. `command` 1000 chars, `durationMs` non-negative integer. |
 
 Limits follow the existing validation style: over-long strings are truncated,
 structural errors reject the event with a reason, and no credentials are stored.
