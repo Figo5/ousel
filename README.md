@@ -24,8 +24,8 @@ Needs **Node 24 or newer** (`node --version`) — the server uses the built-in
 network call at runtime.
 
 ```bash
-git clone https://github.com/Figo5/agentops.git   # repository name unchanged for now
-cd agentops
+git clone https://github.com/Figo5/ousel.git
+cd ousel
 npm install
 npm run build
 npm start

@@ -27,8 +27,8 @@ call at any point after install.
 ## 2. Install and start
 
 ```bash
-git clone https://github.com/Figo5/agentops.git
-cd agentops
+git clone https://github.com/Figo5/ousel.git
+cd ousel
 npm install
 npm run build
 npm start

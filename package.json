@@ -32,7 +32,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Figo5/agentops.git"
+    "url": "https://github.com/Figo5/ousel.git"
   },
   "dependencies": {
     "react": "^19.3.0",
