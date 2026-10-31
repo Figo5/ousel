@@ -41,8 +41,6 @@ network call at runtime.
 ```bash
 git clone https://github.com/Figo5/ousel.git
 cd ousel
-# While PR #1 is under review, main is still the AgentOps viewer.
-git switch feat/ousel
 npm install
 npm run build
 npm start
