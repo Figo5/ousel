@@ -59,7 +59,10 @@ export class LocalGuard {
       if (!req.headers["content-type"]?.startsWith("application/json"))
         throw new HttpError(415, "JSON required");
       if (!tokenRequired) return;
-      const provided = req.headers["x-agentops-token"];
+      // `x-ousel-token` is the name; `x-agentops-token` is the pre-rename
+      // spelling and carries the same token.
+      const provided =
+        req.headers["x-ousel-token"] ?? req.headers["x-agentops-token"];
       if (
         typeof provided !== "string" ||
         Buffer.byteLength(provided) !== Buffer.byteLength(this.token) ||
@@ -126,7 +129,7 @@ export function acquireLock(dataDir: string): () => void {
         throw new Error("Invalid database lock; inspect server.lock");
       try {
         process.kill(pid, 0);
-        throw new Error("Another AgentOps server owns this database");
+        throw new Error("Another Ousel server owns this database");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
       }

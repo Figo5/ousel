@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 const flags = process.argv.slice(2);
 if (flags.includes("--help")) {
   console.log(
-    "Usage: npm run demo -- [--fast]\nStart the local server first. AGENTOPS_PORT defaults to 4317.\nPosts labeled synthetic events; no agents or providers are launched.",
+    "Usage: npm run demo -- [--fast]\nStart the local server first. OUSEL_PORT (or AGENTOPS_PORT) defaults to 4317.\nPosts labeled synthetic events; no agents or providers are launched.",
   );
   process.exit(0);
 }
@@ -11,13 +11,20 @@ if (flags.some((flag) => flag !== "--fast")) {
   console.error("Unknown option. Use --help.");
   process.exit(1);
 }
-const port = Number(process.env.AGENTOPS_PORT ?? 4317);
+const port = Number(
+  process.env.OUSEL_PORT ?? process.env.AGENTOPS_PORT ?? 4317,
+);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) {
-  console.error("AGENTOPS_PORT must be between 1024 and 65535.");
+  console.error("OUSEL_PORT must be between 1024 and 65535.");
   process.exit(1);
 }
 const base = `http://127.0.0.1:${port}`;
 const session = `demo-${Date.now()}`;
+const common = {
+  source: "synthetic",
+  project: "demo",
+  task: "sample-workflow",
+};
 const events = [
   {
     actor: "demo-planner",
@@ -106,7 +113,7 @@ try {
       redirect: "error",
       signal: AbortSignal.timeout(3000),
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...event, session }),
+      body: JSON.stringify({ ...common, ...event, session }),
     });
     if (response.status !== 202)
       throw new Error(`server returned HTTP ${response.status}`);
@@ -123,7 +130,7 @@ try {
   );
 } catch (error) {
   console.error(
-    `Demo stopped: ${error.message}. Start the local server with npm start and check AGENTOPS_PORT.`,
+    `Demo stopped: ${error.message}. Start the local server with npm start and check OUSEL_PORT.`,
   );
   process.exitCode = 1;
 }

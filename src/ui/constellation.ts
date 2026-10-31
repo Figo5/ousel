@@ -13,6 +13,7 @@ import {
   verdictTone,
   type EventIssue,
   type EventRecord,
+  type EventSource,
   type EventStatus,
 } from "../core/events.js";
 
@@ -82,7 +83,15 @@ export interface Card {
   tone: "success" | "warn" | "danger" | "neutral";
   issues: EventIssue[];
   detail: Record<string, unknown>;
-  /** True while this is the newest unresolved blocker for its session. */
+  /** How the event was learned, so a card never reads as more than it is. */
+  source: EventSource;
+  /** Carried so a reply lands in the same task as the card it answers. */
+  project: string | null;
+  task: string | null;
+  /**
+   * True while this is the newest unresolved blocker or failure for its
+   * session, by explicit events only. It is never derived from silence.
+   */
   awaitingYou: boolean;
   createdAt: string;
 }
@@ -376,6 +385,9 @@ export function foldConstellation(
         tone,
         issues: event.issues,
         detail: event.detail,
+        source: event.source,
+        project: event.project,
+        task: event.task,
         awaitingYou: false,
         createdAt: event.createdAt,
       });

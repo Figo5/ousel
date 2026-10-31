@@ -16,7 +16,9 @@ function runDemo(
         "--fast",
       ],
       {
-        env: { ...process.env, AGENTOPS_PORT: String(port) },
+        // Explicit: an inherited OUSEL_PORT must not redirect the test's
+        // synthetic events into a real local viewer.
+        env: { ...process.env, OUSEL_PORT: String(port) },
         stdio: ["ignore", "ignore", "pipe"],
       },
     );
@@ -41,7 +43,10 @@ test("the demo stores a labeled synthetic workflow through the real HTTP surface
       events.every(
         (event) =>
           event.session?.startsWith("demo-") &&
-          event.summary?.startsWith("DEMO:"),
+          event.summary?.startsWith("DEMO:") &&
+          event.source === "synthetic" &&
+          event.project === "demo" &&
+          event.task === "sample-workflow",
       ),
     );
     assert.ok(events.some((event) => event.target === "demo-reviewer"));

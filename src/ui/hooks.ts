@@ -86,17 +86,30 @@ export function useEventStream(options: {
     source.onopen = () => setStatus("live");
     source.onerror = () =>
       setStatus((current) => (current === "idle" ? "idle" : "reconnecting"));
+    // A replay can deliver thousands of frames in a burst. Merge them in one
+    // pass instead of rebuilding and sorting the whole list per frame.
+    const buffer: EventRecord[] = [];
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      timer = null;
+      if (buffer.length === 0) return;
+      const batch = buffer.splice(0);
+      setEvents((current) => mergeEvents(current, batch));
+    };
     const receive = (message: MessageEvent) => {
       const parsed = parseSseEventFrame(
         typeof message.data === "string" ? `data: ${message.data}` : "",
       );
       if (!parsed) return;
-      setEvents((current) => mergeEvents(current, [parsed]));
+      buffer.push(parsed);
+      if (timer === null) timer = setTimeout(flush, 120);
     };
     source.addEventListener("event", receive);
     return () => {
       source.removeEventListener("event", receive);
       source.close();
+      if (timer !== null) clearTimeout(timer);
+      buffer.length = 0;
       setStatus("idle");
     };
   }, [client, session, enabled]);

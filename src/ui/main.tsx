@@ -8,7 +8,7 @@ import "./theme.css";
 
 const container = document.getElementById("root");
 if (!container)
-  throw new Error("AgentOps UI: #root container is missing from index.html");
+  throw new Error("Ousel UI: #root container is missing from index.html");
 
 createRoot(container).render(
   <StrictMode>

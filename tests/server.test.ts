@@ -181,6 +181,254 @@ test("bootstrap hands back the recent window and the cursor", async () => {
   });
 });
 
+test("bootstrap reports the Ousel version", async () => {
+  await withServer(async (base) => {
+    const payload = (await (await fetch(`${base}/api/bootstrap`)).json()) as {
+      version: string;
+    };
+    assert.equal(payload.version, "3.0.0");
+  });
+});
+
+test("health reports liveness, the cursor and the total", async () => {
+  await withServer(async (base) => {
+    const empty = await fetch(`${base}/api/health`);
+    assert.equal(empty.status, 200);
+    assert.deepEqual(await empty.json(), {
+      ok: true,
+      version: "3.0.0",
+      latestId: 0,
+      total: 0,
+    });
+    await post(base, { actor: "a", action: "one" });
+    await post(base, { actor: "b", action: "two" });
+    const health = (await (await fetch(`${base}/api/health`)).json()) as {
+      ok: boolean;
+      latestId: number;
+      total: number;
+    };
+    assert.equal(health.ok, true);
+    assert.equal(health.latestId, 2);
+    assert.equal(health.total, 2);
+  });
+});
+
+test("health goes through the normal guard", async () => {
+  await withServer(async (base) => {
+    const crossSite = await fetch(`${base}/api/health`, {
+      headers: { "sec-fetch-site": "cross-site" },
+    });
+    assert.equal(crossSite.status, 403);
+  });
+});
+
+test("the v3 fields round-trip through ingest, the store and bootstrap", async () => {
+  await withServer(async (base, app) => {
+    const response = await post(base, {
+      actor: "claude-code",
+      action: "test",
+      source: "captured",
+      project: "ousel",
+      task: "task-view",
+      files: [{ path: "src/ui/App.tsx", change: "modified" }],
+      checks: [
+        {
+          name: "npm test",
+          result: "pass",
+          evidence: "captured",
+          command: "npm test",
+          durationMs: 1234,
+        },
+      ],
+    });
+    assert.equal(response.status, 202);
+    const stored = app.store.list()[0]!;
+    assert.equal(stored.source, "captured");
+    assert.equal(stored.project, "ousel");
+    assert.equal(stored.task, "task-view");
+    assert.equal(stored.files[0]!.path, "src/ui/App.tsx");
+    assert.equal(stored.checks[0]!.durationMs, 1234);
+
+    const payload = (await (await fetch(`${base}/api/bootstrap`)).json()) as {
+      events: { source: string; checks: { evidence: string }[] }[];
+    };
+    assert.equal(payload.events[0]!.source, "captured");
+    assert.equal(payload.events[0]!.checks[0]!.evidence, "captured");
+  });
+});
+
+test("an event with no source is stored as reported", async () => {
+  await withServer(async (base, app) => {
+    await post(base, { actor: "a", action: "x" });
+    assert.equal(app.store.list()[0]!.source, "reported");
+  });
+});
+
+test("source inferred is refused with a reason", async () => {
+  await withServer(async (base, app) => {
+    const response = await post(base, {
+      actor: "a",
+      action: "x",
+      source: "inferred",
+    });
+    assert.equal(response.status, 400);
+    const body = (await response.json()) as {
+      rejected: { errors: string[] }[];
+    };
+    assert.ok(body.rejected[0]!.errors.some((e) => e.includes("inferred")));
+    assert.equal(app.store.count(), 0);
+  });
+});
+
+test("the legacy token header is accepted alongside x-ousel-token", async () => {
+  await withServer(async (base, app) => {
+    // /ingest needs no token, so the header must simply never get in the way.
+    for (const header of ["x-ousel-token", "x-agentops-token"]) {
+      const response = await post(
+        base,
+        { actor: "a", action: "x" },
+        { [header]: app.guard.token },
+      );
+      assert.equal(response.status, 202);
+    }
+  });
+});
+
+async function readStream(
+  url: string,
+  needle: string,
+  forbidden: string[],
+): Promise<string> {
+  const response = await fetch(url);
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const deadline = Date.now() + 3000;
+  while (!buffer.includes(needle) && Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+  }
+  await reader.cancel();
+  assert.ok(buffer.includes(needle), `stream never carried ${needle}`);
+  for (const text of forbidden)
+    assert.ok(!buffer.includes(text), `stream leaked ${text}`);
+  return buffer;
+}
+
+test("project and task filters only stream that task", async () => {
+  await withServer(async (base) => {
+    await post(base, {
+      actor: "other-project",
+      action: "x",
+      project: "p2",
+      task: "t1",
+    });
+    await post(base, {
+      actor: "other-task",
+      action: "x",
+      project: "p1",
+      task: "t2",
+    });
+    await post(base, { actor: "legacy", action: "x" });
+    await post(base, {
+      actor: "wanted",
+      action: "x",
+      project: "p1",
+      task: "t1",
+    });
+
+    await readStream(
+      `${base}/api/events?project=p1&task=t1`,
+      '"actor":"wanted"',
+      ['"actor":"other-project"', '"actor":"other-task"', '"actor":"legacy"'],
+    );
+    await readStream(`${base}/api/events?project=p1`, '"actor":"other-task"', [
+      '"actor":"other-project"',
+      '"actor":"legacy"',
+    ]);
+  });
+});
+
+test("a filtered stream pages past a full window of unrelated events", async () => {
+  await withServer(async (base, app) => {
+    // The stream reads 200 rows at a time. If an entire first page is
+    // filtered out, the pump must keep going instead of waiting forever.
+    // Batches are capped at 100, so send three and check each was accepted.
+    for (let start = 0; start < 205; start += 100) {
+      const events = Array.from(
+        { length: Math.min(100, 205 - start) },
+        (_, offset) => ({
+          actor: `other-${start + offset}`,
+          action: "x",
+          project: "p2",
+          task: "other",
+        }),
+      );
+      assert.equal((await post(base, { events })).status, 202);
+    }
+    assert.equal(app.store.count(), 205);
+    assert.equal(
+      (
+        await post(base, {
+          actor: "wanted",
+          action: "x",
+          project: "p1",
+          task: "t1",
+        })
+      ).status,
+      202,
+    );
+    await readStream(
+      `${base}/api/events?project=p1&task=t1`,
+      '"actor":"wanted"',
+      ['"actor":"other-0"'],
+    );
+  });
+});
+
+test("filters combine with the session filter and the cursor", async () => {
+  await withServer(async (base) => {
+    await post(base, { actor: "old", action: "x", task: "t", session: "s" });
+    await post(base, {
+      actor: "wrong-session",
+      action: "x",
+      task: "t",
+      session: "z",
+    });
+    await post(base, { actor: "new", action: "x", task: "t", session: "s" });
+    await readStream(
+      `${base}/api/events?task=t&session=s&afterId=1`,
+      '"actor":"new"',
+      ['"actor":"old"', '"actor":"wrong-session"'],
+    );
+  });
+});
+
+test("an over-long filter is a 400 rather than an open stream", async () => {
+  await withServer(async (base) => {
+    const response = await fetch(
+      `${base}/api/events?project=${"p".repeat(201)}`,
+    );
+    assert.equal(response.status, 400);
+  });
+});
+
+test("bootstrap can be scoped to a project and task", async () => {
+  await withServer(async (base) => {
+    await post(base, { actor: "a", action: "x", project: "p", task: "t1" });
+    await post(base, { actor: "b", action: "x", project: "p", task: "t2" });
+    const payload = (await (
+      await fetch(`${base}/api/bootstrap?project=p&task=t2`)
+    ).json()) as { events: { actor: string }[]; total: number };
+    assert.deepEqual(
+      payload.events.map((e) => e.actor),
+      ["b"],
+    );
+    assert.equal(payload.total, 2, "the total is still the whole database");
+  });
+});
+
 test("the stream replays from a cursor and then delivers live events", async () => {
   await withServer(async (base) => {
     await post(base, { actor: "first", action: "before" });

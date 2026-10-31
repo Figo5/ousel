@@ -4,6 +4,7 @@
  * Intentionally dumb: no data fetching, no rules beyond presentation.
  */
 import type { ReactNode } from "react";
+import { sourceHint, sourceLabel, type AttentionSource } from "../taskview.js";
 
 /** The status vocabulary the stylesheet knows how to colour. */
 export type Tone =
@@ -38,6 +39,36 @@ export function Pill({
       title={title}
     >
       {children}
+    </span>
+  );
+}
+
+const SOURCE_GLYPH = {
+  captured: "◆",
+  reported: "◇",
+  synthetic: "▨",
+  inferred: "~",
+} as const;
+
+/**
+ * Where a fact came from. The glyph and the border pattern (solid, thin,
+ * dashed, dotted) both differ per source, so it never depends on hue.
+ */
+export function SourceBadge({
+  source,
+  label,
+}: {
+  source: AttentionSource;
+  /** Overrides the word, e.g. "evidence: captured". */
+  label?: string;
+}) {
+  return (
+    <span
+      className={classNames("src", `src--${source}`)}
+      title={sourceHint(source)}
+    >
+      <span aria-hidden="true">{SOURCE_GLYPH[source]}</span>{" "}
+      {label ?? sourceLabel(source)}
     </span>
   );
 }

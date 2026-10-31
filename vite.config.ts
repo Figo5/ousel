@@ -1,11 +1,11 @@
 /**
- * Vite configuration for the AgentOps browser client.
+ * Vite configuration for the Ousel browser client.
  *
  * Deliberate choices:
  *  - No `@vitejs/plugin-react` dependency: .tsx files are transformed by Vite's
  *    built-in esbuild pipeline with `jsx: 'automatic'`. Adding the plugin later
  *    enables Fast Refresh but is not required to build or run the app.
- *  - The client is served by the AgentOps server on the same origin, so the build
+ *  - The client is served by the Ousel server on the same origin, so the build
  *    output is written to `dist/ui` for the server to serve.
  *  - `npm run dev` proxies /api to the local server. The server validates Host and
  *    Origin on every request, so the proxy rewrites Host (changeOrigin) and strips
@@ -14,7 +14,10 @@
  */
 import { defineConfig } from "vite";
 
-const apiTarget = process.env["AGENTOPS_API_URL"] ?? "http://127.0.0.1:4317";
+const apiTarget =
+  process.env["OUSEL_API_URL"] ??
+  process.env["AGENTOPS_API_URL"] ??
+  "http://127.0.0.1:4317";
 
 export default defineConfig({
   root: ".",

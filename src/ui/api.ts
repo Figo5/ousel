@@ -140,5 +140,46 @@ export function mergeEvents(
   for (const event of existing) byId.set(event.id, event);
   for (const event of incoming) byId.set(event.id, event);
   const merged = [...byId.values()].sort((a, b) => a.id - b.id);
-  return merged.length > cap ? merged.slice(merged.length - cap) : merged;
+  if (merged.length <= cap) return merged;
+  // Routine successful tool events may be dropped from the display window, but
+  // a blocker, error, verdict, handoff, check or file reference can still be the
+  // only record of unresolved work. Keep those regardless of age; they are a
+  // small fraction of a stream, and losing them would make "needs attention"
+  // silently wrong.
+  const keep = new Map<number, EventRecord>();
+  for (const event of merged)
+    if (
+      event.status === "blocked" ||
+      event.status === "error" ||
+      event.verdict ||
+      event.checks.length > 0 ||
+      event.files.length > 0 ||
+      event.target ||
+      event.parent
+    )
+      keep.set(event.id, event);
+  for (const event of merged.slice(merged.length - cap))
+    keep.set(event.id, event);
+  // A handoff is resolved by any later event from its target, even a routine
+  // one. Keep the latest event per actor so retention cannot make an answered
+  // handoff look unanswered.
+  const latestByActor = new Map<string, EventRecord>();
+  for (const event of merged)
+    latestByActor.set(
+      `${event.project ?? ""}\u0000${event.task ?? ""}\u0000${event.actor}`,
+      event,
+    );
+  for (const event of latestByActor.values()) keep.set(event.id, event);
+  // Keep the latest resolution per actor+session. Without it, `error → ok →
+  // running` could retain the error and the running event but drop the ok,
+  // resurrecting a blocker that was explicitly resolved.
+  const latestOk = new Map<string, EventRecord>();
+  for (const event of merged)
+    if (event.status === "ok")
+      latestOk.set(
+        `${event.project ?? ""}\u0000${event.task ?? ""}\u0000${event.actor}\u0000${event.session ?? ""}`,
+        event,
+      );
+  for (const event of latestOk.values()) keep.set(event.id, event);
+  return [...keep.values()].sort((a, b) => a.id - b.id);
 }
