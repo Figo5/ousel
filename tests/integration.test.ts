@@ -365,12 +365,25 @@ test(
   { timeout: 15_000 },
   async () => {
     const started = Date.now();
-    const result = await run([
-      "-e",
-      "const {spawn}=require('node:child_process');const p=spawn(process.execPath,[process.argv[1]],{stdio:['pipe','inherit','inherit']});p.on('exit',c=>process.exit(c));",
-      HOOK_PATH,
-    ]);
-    assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+    // Spawn the hook directly with an open stdin pipe: this is the shape Claude
+    // Code uses, without an extra wrapper process to observe.
+    const child = spawn(process.execPath, [HOOK_PATH], {
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    const killer = setTimeout(() => child.kill("SIGKILL"), 8_000);
+    const code = await new Promise<number | null>((resolve) =>
+      child.once("exit", resolve),
+    );
+    clearTimeout(killer);
+    assert.deepEqual(
+      { code, stdout, stderr },
+      { code: 0, stdout: "", stderr: "" },
+    );
     // The hook itself has a 2500 ms deadline; allow process startup and a loaded
     // CI machine while still rejecting a truly stalled process.
     assert.ok(Date.now() - started < 10_000);
@@ -773,13 +786,24 @@ test(
       assert.deepEqual(first, { code: 0, stdout: "", stderr: "" });
       assert.ok(hookMs < 10_000, `hook took ${hookMs}ms`);
       const secondStarted = Date.now();
-      const result = await run([
-        "-e",
-        "const {spawn}=require('node:child_process');const p=spawn(process.execPath,[process.argv[1]],{stdio:['pipe','inherit','inherit']});p.on('exit',c=>process.exit(c));",
-        HOOK_PATH,
-      ]);
+      const child = spawn(process.execPath, [HOOK_PATH], {
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const killer = setTimeout(() => child.kill("SIGKILL"), 8_000);
+      const code = await new Promise<number | null>((resolve) =>
+        child.once("exit", resolve),
+      );
+      clearTimeout(killer);
       const secondMs = Date.now() - secondStarted;
-      assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+      assert.deepEqual(
+        { code, stdout, stderr },
+        { code: 0, stdout: "", stderr: "" },
+      );
       assert.ok(secondMs < 10_000, `stalled stdin hook took ${secondMs}ms`);
     } finally {
       await close(fake.server);
