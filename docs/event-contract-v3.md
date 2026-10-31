@@ -24,8 +24,9 @@ structural errors reject the event with a reason, and no credentials are stored.
 
 ## Meaning of `source`
 
-- **captured** — produced by an integration that observed the host (for example a
-  Claude Code hook seeing a tool result). It is not a claim by a model.
+- **captured** — the sender labels it as observed by an integration (for example
+  a Claude Code hook seeing a tool result). The local server cannot independently
+  verify that label; do not treat it as cryptographic proof.
 - **reported** — explicitly posted by an agent or by Maki through `/ingest`.
   Reports are useful and often the only available evidence, but they are claims.
 - **synthetic** — demo or fixture data. Always labeled, never mixed silently.

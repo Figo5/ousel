@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -178,10 +178,45 @@ test("a table that predates v2 gets a clear error, not a bare SQL one", () => {
       "CREATE TABLE events (id INTEGER PRIMARY KEY, kind TEXT, body TEXT)",
     );
     db.close();
+    const before = readFileSync(file);
     assert.throws(
       () => new Store({ path: file }),
-      /Could not initialise the events table.*older AgentOps.*OUSEL_DATA_DIR/s,
+      /predates the v2 schema.*back it up.*new directory/s,
     );
+    assert.deepEqual(
+      readFileSync(file),
+      before,
+      "refusing an incompatible events table must not modify it",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("a database with other tables but no events table is refused", () => {
+  const { file, cleanup } = tempDb();
+  try {
+    const db = new DatabaseSync(file);
+    db.exec("CREATE TABLE runs (id INTEGER PRIMARY KEY, name TEXT)");
+    db.exec("INSERT INTO runs (name) VALUES ('old run')");
+    db.close();
+    const before = readFileSync(file);
+    assert.throws(
+      () => new Store({ path: file }),
+      /has tables \(runs\) but no events table.*not an Ousel\/AgentOps v2 database/s,
+    );
+    assert.deepEqual(
+      readFileSync(file),
+      before,
+      "refusing a foreign database must not modify it",
+    );
+    const check = new DatabaseSync(file, { readOnly: true });
+    assert.equal(
+      (check.prepare("SELECT name FROM runs").get() as { name: string }).name,
+      "old run",
+      "the refused file was not altered",
+    );
+    check.close();
   } finally {
     cleanup();
   }

@@ -118,11 +118,12 @@ Only explicit facts, plus one labelled inference:
 1. latest status `blocked` (high)
 2. latest `error` not followed by `ok` from the same actor and session (high)
 3. latest reviewer verdict reading as needs-fixes / changes / reject / fail (high)
-4. approval verdict while there are **no captured checks** (medium) — a verdict
-   is not test evidence
-5. a handoff (`target`) with no later event from the target (medium)
-6. work finished but no reviewer decision (low)
-7. a participant whose last status was `running` more than 10 minutes ago (low,
+4. a captured check that did not pass, until a later check of the same name passes (high)
+5. approval verdict while there are **no passing captured checks** (medium) — a
+   verdict is not test evidence
+6. a handoff (`target`) with no later event from the target (medium)
+7. work finished but no reviewer decision (low)
+8. a participant whose last status was `running` more than 10 minutes ago (low,
    **inferred**): "quiet — status unknown (inferred from inactivity)". This is
    never shown as blocked.
 
@@ -130,12 +131,12 @@ Only explicit facts, plus one labelled inference:
 
 ## Event semantics
 
-| `source`    | Meaning                                                                     |
-| ----------- | --------------------------------------------------------------------------- |
-| `captured`  | Observed by an integration (e.g. a hook saw the command run).               |
-| `reported`  | The agent said so. The default when `source` is absent.                     |
-| `synthetic` | Demo or test data. Never real activity.                                     |
-| _inferred_  | Never sent. Ousel derives it itself (the quiet label) and marks it as such. |
+| `source`    | Meaning                                                                                               |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| `captured`  | The sender labels it captured (normally an integration). Trusted locally, not independently verified. |
+| `reported`  | The agent said so. The default when `source` is absent.                                               |
+| `synthetic` | Demo or test data. Never real activity.                                                               |
+| _inferred_  | Never sent. Ousel derives it itself (the quiet label) and marks it as such.                           |
 
 `source: "inferred"` is rejected. Check `evidence` is `captured` or `reported`
 (default `reported`). A `checks[].evidence: "captured"` entry is accepted only
@@ -309,8 +310,9 @@ your own machine; do not expose the port to a network.
 ## Limitations
 
 - No authentication and no multi-user story; do not expose the port.
-- The UI keeps a window of recent events (bootstrap is 400, then the live
-  stream); very old history is in the database but not all loaded.
+- The UI replays history on load and keeps a capped window plus blockers,
+  errors, verdicts, checks, files and handoffs. Very old routine tool events are
+  dropped from memory; the database still retains them.
 - Task identity is whatever agents send. Two agents spelling a task differently
   are two tasks.
 - `captured` is a claim by the sender, trusted on a loopback-only server.

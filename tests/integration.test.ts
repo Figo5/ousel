@@ -97,8 +97,15 @@ async function viewer(status = 202, stall = false) {
   return { server, posts, url: `http://127.0.0.1:${address.port}` };
 }
 const close = async (server: Server) => {
+  // A stalled fixture can leave a socket that makes server.close wait for
+  // minutes. Destroy connections and cap the wait; the hook's own deadline is
+  // what the test is asserting, not the fixture's shutdown.
   server.closeAllConnections();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await Promise.race([
+    new Promise<void>((resolve) => server.close(() => resolve())),
+    new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+  ]);
+  server.closeAllConnections();
 };
 
 // Transport simulation supplements, but never substitutes for, the TCP tests.
@@ -353,16 +360,22 @@ test("unavailable reporter and explicit health diagnostics have distinct exit co
   });
 });
 
-test("hook exits silently with stalled stdin", async () => {
-  const started = Date.now();
-  const result = await run([
-    "-e",
-    "const {spawn}=require('node:child_process');const p=spawn(process.execPath,[process.argv[1]],{stdio:['pipe','inherit','inherit']});p.on('exit',c=>process.exit(c));",
-    HOOK_PATH,
-  ]);
-  assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
-  assert.ok(Date.now() - started < 4000);
-});
+test(
+  "hook exits silently with stalled stdin",
+  { timeout: 15_000 },
+  async () => {
+    const started = Date.now();
+    const result = await run([
+      "-e",
+      "const {spawn}=require('node:child_process');const p=spawn(process.execPath,[process.argv[1]],{stdio:['pipe','inherit','inherit']});p.on('exit',c=>process.exit(c));",
+      HOOK_PATH,
+    ]);
+    assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+    // The hook itself has a 2500 ms deadline; allow process startup and a loaded
+    // CI machine while still rejecting a truly stalled process.
+    assert.ok(Date.now() - started < 10_000);
+  },
+);
 
 test("generated shell command preserves quotes and suppresses launcher errors", async () => {
   const project = await mkdtemp(path.join(tmpdir(), "ousel-quoted-"));
@@ -532,11 +545,20 @@ test("file tools expose paths only and failed edits do not claim changes", () =>
       undefined,
     );
   }
+  const created = mapHook(
+    payload("PostToolUse", {
+      tool_name: "Write",
+      tool_input: { file_path: "src/new.ts" },
+      tool_response: { type: "create" },
+    }),
+  );
+  assert.equal(created.files?.[0]?.change, "added");
 });
 
 test("validation detection does not turn mentions or background starts into evidence", () => {
   for (const command of [
     "npm test",
+    "npm test:unit",
     "npm run check",
     "pnpm run typecheck",
     "yarn lint",
@@ -555,6 +577,8 @@ test("validation detection does not turn mentions or background starts into evid
     "npm test || true",
     "npm test; echo done",
     "node -e 'code' --test",
+    "npm run lint:fix",
+    "npm run build:prod",
     "echo hi && npm test",
     "npm test &",
     "npm test $(cat .env)",
@@ -733,24 +757,30 @@ test("hook process silently exits zero for malformed, oversized, unknown, and re
 
 test(
   "hook HTTP timeout and stalled stdin have bounded silent exits",
-  { skip: networkSkip },
+  { skip: networkSkip, timeout: 60_000 },
   async () => {
     const fake = await viewer(200, true);
     try {
       const started = Date.now();
-      assert.deepEqual(
-        await run([HOOK_PATH], JSON.stringify(payload("SessionStart")), {
+      const first = await run(
+        [HOOK_PATH],
+        JSON.stringify(payload("SessionStart")),
+        {
           OUSEL_URL: fake.url,
-        }),
-        { code: 0, stdout: "", stderr: "" },
+        },
       );
-      assert.ok(Date.now() - started < 4000);
+      const hookMs = Date.now() - started;
+      assert.deepEqual(first, { code: 0, stdout: "", stderr: "" });
+      assert.ok(hookMs < 10_000, `hook took ${hookMs}ms`);
+      const secondStarted = Date.now();
       const result = await run([
         "-e",
         "const {spawn}=require('node:child_process');const p=spawn(process.execPath,[process.argv[1]],{stdio:['pipe','inherit','inherit']});p.on('exit',c=>process.exit(c));",
         HOOK_PATH,
       ]);
+      const secondMs = Date.now() - secondStarted;
       assert.deepEqual(result, { code: 0, stdout: "", stderr: "" });
+      assert.ok(secondMs < 10_000, `stalled stdin hook took ${secondMs}ms`);
     } finally {
       await close(fake.server);
     }

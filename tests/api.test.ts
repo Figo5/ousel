@@ -71,3 +71,71 @@ test("replays do not duplicate ids", () => {
     [1, 2, 3],
   );
 });
+
+test("routine successful tool events do not defeat the retention cap", () => {
+  const events = Array.from({ length: 100 }, (_, i) =>
+    event(i + 1, { actor: "claude-code", status: "ok" }),
+  );
+  events[0] = event(1, { actor: "claude-code", status: "error" });
+  const merged = mergeEvents([], events, 10);
+  assert.ok(
+    merged.some((e) => e.id === 1),
+    "old error retained",
+  );
+  assert.ok(
+    merged.some((e) => e.id === 100),
+    "newest retained",
+  );
+  assert.ok(!merged.some((e) => e.id === 50), "routine ok dropped");
+});
+
+test("retention keeps an ok that resolved an earlier error", () => {
+  const merged = mergeEvents(
+    [],
+    [
+      event(1, { actor: "a", status: "error", session: "s" }),
+      event(2, { actor: "a", status: "ok", session: "s" }),
+      event(3, { actor: "a", status: "running", session: "s" }),
+      event(4, { actor: "b", status: "ok", session: "s" }),
+      event(5, { actor: "b", status: "ok", session: "s" }),
+    ],
+    2,
+  );
+  assert.deepEqual(
+    merged.map((e) => e.id),
+    [1, 2, 3, 4, 5],
+  );
+  assert.ok(
+    merged.some((e) => e.id === 1),
+    "error retained",
+  );
+  assert.ok(
+    merged.some((e) => e.id === 2),
+    "resolving ok retained",
+  );
+});
+
+test("resolution evidence is scoped to its project and task", () => {
+  const merged = mergeEvents(
+    [],
+    [
+      event(1, { actor: "a", status: "error", project: "p", task: "a" }),
+      event(2, { actor: "a", status: "ok", project: "p", task: "a" }),
+      event(3, { actor: "a", status: "error", project: "p", task: "b" }),
+      event(4, { actor: "a", status: "ok", project: "p", task: "b" }),
+      event(5, { actor: "a", status: "ok", project: "p", task: "c" }),
+      event(6, { actor: "a", status: "ok", project: "p", task: "c" }),
+      event(7, { actor: "a", status: "ok", project: "p", task: "c" }),
+      event(8, { actor: "a", status: "ok", project: "p", task: "c" }),
+    ],
+    2,
+  );
+  assert.ok(
+    merged.some((e) => e.id === 2),
+    "task A ok retained",
+  );
+  assert.ok(
+    merged.some((e) => e.id === 4),
+    "task B ok retained",
+  );
+});

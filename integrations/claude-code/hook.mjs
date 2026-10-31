@@ -38,8 +38,9 @@ export function isValidationCommand(command) {
     if (tokens.join(" ") !== part.trim().replace(/\s+/g, " ")) return false;
     while (/^[A-Za-z_][\w]*=/.test(tokens[0] ?? "")) tokens.shift();
     const [bin, arg, script] = tokens;
-    const validation =
-      /^(?:test|build|lint|typecheck|check|tsc|vitest)(?::[\w-]+)?$/;
+    // `lint:fix` mutates; `build:prod` is not a distinct validation command.
+    // Allow only exact runners plus test:* variants.
+    const validation = /^(?:test(?::[\w-]+)?|build|lint|typecheck|check|tsc|vitest)$/;
     if (bin === "cd")
       return (
         parts.length > 1 && index < parts.length - 1 && tokens.length === 2
@@ -126,7 +127,15 @@ export function mapHook(payload, env = {}) {
         if (path) {
           detail.path = path;
           if (!failed && ["Edit", "Write", "NotebookEdit"].includes(tool))
-            result.files = [{ path, change: "modified" }];
+            result.files = [
+              {
+                path,
+                change:
+                  tool === "Write" && payload.tool_response?.type === "create"
+                    ? "added"
+                    : "modified",
+              },
+            ];
         }
       }
       if (

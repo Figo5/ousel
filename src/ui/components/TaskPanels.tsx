@@ -102,11 +102,13 @@ export function SummaryStrip({ view, now }: { view: TaskView; now: number }) {
           {view.capturedChecks} captured · {view.reportedChecks} reported
         </span>
         <span className="tile__note">
-          {view.syntheticChecks > 0
-            ? `${view.syntheticChecks} synthetic (not evidence)`
-            : view.capturedChecks === 0
-              ? "no captured validation"
-              : "captured = observed by an integration"}
+          {view.capturedFailedChecks > 0
+            ? `${view.capturedFailedChecks} captured failed`
+            : view.syntheticChecks > 0
+              ? `${view.syntheticChecks} synthetic (not evidence)`
+              : view.capturedChecks === 0
+                ? "no passing captured validation"
+                : "captured = sender-labeled observation"}
         </span>
       </div>
       <div className="tile">
@@ -216,6 +218,9 @@ export function Evidence({ view, now }: { view: TaskView; now: number }) {
       <h2 id="evidence-h">Validation evidence</h2>
       <p className="faint small">
         {view.capturedChecks} captured · {view.reportedChecks} reported
+        {view.capturedFailedChecks > 0
+          ? ` · ${view.capturedFailedChecks} captured failed`
+          : ""}
         {view.syntheticChecks > 0
           ? ` · ${view.syntheticChecks} synthetic (not evidence)`
           : ""}

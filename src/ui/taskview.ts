@@ -95,7 +95,9 @@ export interface TaskView {
   checks: CheckView[];
   files: FileView[];
   lastReported: EventRecord | null;
+  /** Captured checks whose result reads as a pass. */
   capturedChecks: number;
+  capturedFailedChecks: number;
   reportedChecks: number;
   /** Checks from synthetic demo events, never counted as real evidence. */
   syntheticChecks: number;
@@ -286,8 +288,13 @@ export function foldTaskView(
     );
 
   const realChecks = checks.filter((check) => check.source !== "synthetic");
-  const capturedChecks = realChecks.filter(
-    (check) => check.evidence === "captured",
+  // Count the latest result per check name. An old failure that was later
+  // fixed is history, not current evidence (and vice versa).
+  const latestCaptured = new Map<string, CheckView>();
+  for (const check of realChecks)
+    if (check.evidence === "captured") latestCaptured.set(check.name, check);
+  const capturedChecks = [...latestCaptured.values()].filter((check) =>
+    checkPassed(check.result),
   ).length;
 
   return {
@@ -299,10 +306,21 @@ export function foldTaskView(
     files,
     lastReported: events[events.length - 1] ?? null,
     capturedChecks,
-    reportedChecks: realChecks.length - capturedChecks,
+    capturedFailedChecks: latestCaptured.size - capturedChecks,
+    reportedChecks: realChecks.filter((check) => check.evidence === "reported")
+      .length,
     syntheticChecks: checks.length - realChecks.length,
     activityCount: events.length,
   };
+}
+
+/** A check result reads as a pass only when it says so. Unknown is not a pass. */
+export function checkPassed(result: string): boolean {
+  // Exact success words only. "not passed" and "0 passed, 1 failed" are
+  // failures, and an unfamiliar result is not evidence of a pass.
+  return /^(?:pass|passed|ok|success|successful|succeeded|green)$/i.test(
+    result.trim(),
+  );
 }
 
 /** Verdicts that ask for more work or reject it. */
@@ -366,6 +384,14 @@ export function attentionItems(view: TaskView, now: number): AttentionItem[] {
       });
 
   for (const [key, event] of latestError) {
+    // A failed captured check is resolved only by a later pass of that check,
+    // not by the next successful Read or Edit. The check rule below owns it.
+    if (
+      event.checks.some(
+        (check) => check.evidence === "captured" && !checkPassed(check.result),
+      )
+    )
+      continue;
     const ok = latestOk.get(key);
     if (ok && ok.id > event.id) continue;
     add({
@@ -418,6 +444,25 @@ export function attentionItems(view: TaskView, now: number): AttentionItem[] {
     )
       newestApproval = event;
   }
+  // A captured check that did not pass stays visible until a later check of
+  // the same name passes. A successful tool call in between proves nothing.
+  // Only a later *captured* result of the same name can resolve a captured
+  // failure. A reported pass or failure is a claim with different provenance.
+  const latestCheck = new Map<string, CheckView>();
+  for (const check of view.checks)
+    if (check.evidence === "captured") latestCheck.set(check.name, check);
+  for (const check of latestCheck.values())
+    if (!checkPassed(check.result))
+      add({
+        id: `check-failed:${check.name}`,
+        tone: "high",
+        title: `Captured check did not pass: ${check.name}`,
+        detail: `${check.actor} recorded result “${check.result}”${check.command ? ` for ${check.command}` : ""}. A later passing check with this name clears it.`,
+        source: check.source,
+        actor: check.actor,
+        at: check.at,
+      });
+
   if (newestApproval && view.capturedChecks === 0)
     add({
       id: "approval-without-captured-checks",
@@ -425,9 +470,11 @@ export function attentionItems(view: TaskView, now: number): AttentionItem[] {
       title: "Review approved without captured validation",
       detail:
         `${newestApproval.actor} said “${newestApproval.verdict}”. A verdict is a decision, not test evidence: ` +
-        (view.reportedChecks > 0
-          ? `${view.reportedChecks} check${view.reportedChecks === 1 ? " is" : "s are"} reported but none were captured.`
-          : "no check was recorded for this task."),
+        (view.capturedFailedChecks > 0
+          ? `${view.capturedFailedChecks} captured check${view.capturedFailedChecks === 1 ? " did" : "s did"} not pass; no passing captured check was recorded.`
+          : view.reportedChecks > 0
+            ? `${view.reportedChecks} check${view.reportedChecks === 1 ? " is" : "s are"} reported but none were captured.`
+            : "no passing captured check was recorded for this task."),
       source: newestApproval.source,
       actor: newestApproval.actor,
       at: newestApproval.createdAt,
@@ -518,7 +565,7 @@ export function sourceLabel(source: AttentionSource): string {
 export function sourceHint(source: AttentionSource): string {
   switch (source) {
     case "captured":
-      return "Observed by an integration, not claimed by a model.";
+      return "Labeled captured by its sender (normally an integration); not independently verified.";
     case "reported":
       return "Posted by an agent or a person. A claim, not an observation.";
     case "synthetic":

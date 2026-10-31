@@ -128,9 +128,42 @@ export class Store {
 
   constructor(options: StoreOptions = {}) {
     this.db = new DatabaseSync(options.path ?? ":memory:");
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA foreign_keys = ON");
     try {
+      // Inspect before any writable pragma: refusing a foreign database must
+      // not switch its journal mode or otherwise modify the file.
+      const tables = (
+        this.db
+          .prepare(
+            `SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+          )
+          .all() as unknown as { name: string }[]
+      ).map((table) => table.name);
+      // A pre-v2 AgentOps file used different tables. Creating an empty
+      // `events` table beside them would start with a blank history and make
+      // the old data look gone. Refuse instead of silently ignoring it.
+      if (tables.length > 0 && !tables.includes("events"))
+        throw new Error(
+          `the file has tables (${tables.join(", ")}) but no events table; it is not an Ousel/AgentOps v2 database`,
+        );
+      // An incompatible existing events table must also be refused before a
+      // writable pragma changes the file.
+      if (tables.includes("events")) {
+        const columns = new Set(
+          (
+            this.db.prepare(`PRAGMA table_info(events)`).all() as unknown as {
+              name: string;
+            }[]
+          ).map((column) => column.name),
+        );
+        const missingBase = V2_COLUMNS.filter((name) => !columns.has(name));
+        if (missingBase.length > 0)
+          throw new Error(
+            `the events table predates the v2 schema (missing ${missingBase.join(", ")})`,
+          );
+      }
+      this.db.exec("PRAGMA journal_mode = WAL");
+      this.db.exec("PRAGMA foreign_keys = ON");
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS events (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,17 +193,24 @@ export class Store {
         CREATE INDEX IF NOT EXISTS events_task_idx ON events (project, task, id);
       `);
     } catch (cause) {
-      // A database written before the v2 schema has an `events` table without
-      // the base columns, so `CREATE TABLE IF NOT EXISTS` finds one and the
-      // migration or index then fails. Say what to do instead of surfacing a
-      // bare SQL error.
-      const where = options.path ?? ":memory:";
-      throw new Error(
-        `Could not initialise the events table in ${where}. If this database ` +
-          `was written by an older AgentOps, move it aside (or set ` +
-          `OUSEL_DATA_DIR to a new directory) and start again. Underlying ` +
-          `error: ${cause instanceof Error ? cause.message : String(cause)}`,
-      );
+      try {
+        this.db.close();
+      } catch {
+        // Already closed, or never usable.
+      }
+      const message = cause instanceof Error ? cause.message : String(cause);
+      // Only schema-shape failures get data-movement advice. A busy or
+      // read-only database must surface its own error, not tell the user to
+      // move a healthy file.
+      if (/predates the v2 schema|no events table/.test(message)) {
+        const where = options.path ?? ":memory:";
+        throw new Error(
+          `Could not open ${where}: ${message}. Keep the file, back it up, ` +
+            `and point OUSEL_DATA_DIR at it only after checking what wrote it; ` +
+            `or use a new directory.`,
+        );
+      }
+      throw cause;
     }
   }
 

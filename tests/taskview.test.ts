@@ -11,6 +11,7 @@ import {
   QUIET_LABEL,
   UNASSIGNED,
   attentionItems,
+  checkPassed,
   foldTaskView,
   formatDuration,
   isApprovalVerdict,
@@ -205,7 +206,8 @@ test("checks are counted by evidence and files are flattened with their actor", 
       ],
     }),
   ]);
-  assert.equal(view.capturedChecks, 2);
+  assert.equal(view.capturedChecks, 1);
+  assert.equal(view.capturedFailedChecks, 1);
   assert.equal(view.reportedChecks, 1);
   assert.equal(view.checks.length, 3);
   assert.equal(view.checks[0]!.actor, "impl");
@@ -364,7 +366,7 @@ test("approval without captured checks says a verdict is not test evidence", () 
   )!;
   assert.equal(gap.tone, "medium");
   assert.match(gap.detail, /not test evidence/);
-  assert.match(gap.detail, /no check was recorded/);
+  assert.match(gap.detail, /no passing captured check was recorded/);
 });
 
 test("reported checks do not satisfy the captured-validation gap", () => {
@@ -576,6 +578,7 @@ test("source labels never present inferred as reported", () => {
     assert.equal(sourceLabel(source), source);
     assert.ok(sourceHint(source).length > 0);
   }
+  assert.match(sourceHint("captured"), /not independently verified/);
   assert.match(sourceHint("inferred"), /Nothing reported this/);
   assert.match(sourceHint("synthetic"), /Not real activity/);
 });
@@ -645,4 +648,117 @@ test("the integration's connection receipt is not a participant", () => {
     ["claude-code"],
   );
   assert.equal(view.events.length, 2, "the receipt stays in the timeline");
+});
+
+test("a failed captured check is not validation and survives an unrelated ok", () => {
+  const view = fold([
+    event({
+      actor: "claude-code",
+      status: "error",
+      action: "tool_failed",
+      source: "captured",
+      checks: [
+        {
+          name: "npm test",
+          result: "failed",
+          evidence: "captured",
+          command: "npm test",
+          durationMs: 10,
+        },
+      ],
+    }),
+    event({ actor: "claude-code", status: "ok", action: "tool_completed" }),
+    event({ actor: "reviewer", verdict: "approve", source: "reported" }),
+  ]);
+  assert.equal(view.capturedChecks, 0);
+  assert.equal(view.capturedFailedChecks, 1);
+  const items = attentionItems(view, NOW);
+  assert.ok(items.some((item) => item.id === "check-failed:npm test"));
+  assert.ok(
+    items.some((item) => item.id === "approval-without-captured-checks"),
+  );
+});
+
+test("a later passing check of the same name clears a captured failure", () => {
+  const view = fold([
+    event({
+      actor: "claude-code",
+      status: "error",
+      source: "captured",
+      checks: [
+        {
+          name: "npm test",
+          result: "failed",
+          evidence: "captured",
+          command: "npm test",
+          durationMs: null,
+        },
+      ],
+    }),
+    event({
+      actor: "claude-code",
+      status: "ok",
+      source: "captured",
+      checks: [
+        {
+          name: "npm test",
+          result: "passed",
+          evidence: "captured",
+          command: "npm test",
+          durationMs: null,
+        },
+      ],
+    }),
+  ]);
+  assert.equal(view.capturedChecks, 1);
+  assert.equal(view.capturedFailedChecks, 0);
+  assert.ok(
+    !attentionItems(view, NOW).some((item) =>
+      item.id.startsWith("check-failed:"),
+    ),
+  );
+});
+
+test("check results are not passes unless they say so unambiguously", () => {
+  for (const result of ["passed", "PASS", "ok", "success", "green"])
+    assert.equal(checkPassed(result), true, result);
+  for (const result of ["failed", "not passed", "0 passed, 1 failed", ""])
+    assert.equal(checkPassed(result), false, result);
+});
+
+test("reported checks cannot clear a captured failure", () => {
+  const view = fold([
+    event({
+      actor: "claude-code",
+      status: "error",
+      source: "captured",
+      checks: [
+        {
+          name: "npm test",
+          result: "failed",
+          evidence: "captured",
+          command: "npm test",
+          durationMs: null,
+        },
+      ],
+    }),
+    event({
+      actor: "reviewer",
+      source: "reported",
+      checks: [
+        {
+          name: "npm test",
+          result: "passed",
+          evidence: "reported",
+          command: "npm test",
+          durationMs: null,
+        },
+      ],
+    }),
+  ]);
+  assert.ok(
+    attentionItems(view, NOW).some((item) =>
+      item.id.startsWith("check-failed:npm test"),
+    ),
+  );
 });
