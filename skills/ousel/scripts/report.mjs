@@ -57,6 +57,8 @@ export async function report(args = process.argv.slice(2), env = process.env) {
           fields.map((field) => [field, { type: "string" }]),
         ),
         health: { type: "boolean" },
+        check: { type: "string", multiple: true },
+        file: { type: "string", multiple: true },
       },
     });
     const url = viewerUrl(values.url ?? env.OUSEL_URL);
@@ -90,6 +92,25 @@ export async function report(args = process.argv.slice(2), env = process.env) {
       );
       if (value) event[field] = value;
     }
+    // NAME=RESULT / PATH[=CHANGE]: split at the first "=" only.
+    const pair = (raw, max) => {
+      const at = raw.indexOf("=");
+      const left = clean(at < 0 ? raw : raw.slice(0, at), max[0]);
+      const right = clean(at < 0 ? "" : raw.slice(at + 1), max[1]);
+      return [left, right, at >= 0];
+    };
+    const checks = (values.check ?? []).map((raw) => {
+      const [name, result] = pair(raw, [200, 40]);
+      if (!name || !result) throw new Error();
+      return { name, result, evidence: "reported" };
+    });
+    const files = (values.file ?? []).map((raw) => {
+      const [path, change, hasChange] = pair(raw, [1000, 40]);
+      if (!path || (hasChange && !change)) throw new Error();
+      return change ? { path, change } : { path };
+    });
+    if (checks.length) event.checks = checks;
+    if (files.length) event.files = files;
     if (
       !event.actor ||
       !event.action ||

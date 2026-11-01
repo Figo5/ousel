@@ -19,12 +19,22 @@ Silence means **stale or unknown** — never "blocked", never "done".
                           ● reviewer   ◉ ← verdict flare
 ```
 
-![Ousel task view with a synthetic demo workflow](docs/ousel-preview.png)
+[![Ousel real-task walkthrough](docs/demo-ousel-task.png)](docs/demo-ousel-task.mp4)
 
-A real Claude/Codex review session, with screenshots and what the viewer did and
-did not make clear, is recorded in [docs/real-session.md](docs/real-session.md).
-The pre-rename recording is archived at `docs/archive/demo-agentops.mp4`; it
-shows the previous product name and is kept only as history.
+**[Watch the 63-second walkthrough](docs/demo-ousel-task.mp4)** — a real task:
+Claude Code's hook captures its session and a passing test, Codex reports an
+independent review and finds a docs gap, Claude revises, and Codex approves.
+The badges keep **captured** evidence separate from **reported** claims.
+
+The task view answers five questions without opening raw logs: who is working,
+what changed, who handed work to whom, what a reviewer found, and what was
+actually checked. `captured` means an integration observed it; `reported` means
+an agent or person said it. A verdict is never treated as proof that tests ran.
+
+A longer written record, including what the viewer did and did not make clear,
+is in [docs/real-session.md](docs/real-session.md). The pre-rename recording is
+archived at `docs/archive/demo-agentops.mp4`; it shows the previous product name
+and is kept only as history.
 
 > **Handing this to a coding agent?** [AGENTS.md](AGENTS.md) takes it from clone
 > to running to reporting. To connect Claude Code, see
@@ -68,6 +78,19 @@ npm run connect:claude -- --project /path/to/project --task my-task
 ```
 
 See [docs/claude-code-integration.md](docs/claude-code-integration.md).
+
+For Codex or any other host, report explicitly. Checks and file references are
+posted as `reported`, never `captured`:
+
+```bash
+node skills/ousel/scripts/report.mjs \
+  --actor codex --action review \
+  --project my-project --task my-task \
+  --status ok --verdict approve \
+  --summary "Independently reviewed the change" \
+  --check "npm test=passed" --file src/a.ts=modified \
+  --url http://127.0.0.1:4317
+```
 
 To see the UI with sample content, run `npm run demo`; see
 [Try a sample workflow](#try-a-sample-workflow). Those events are synthetic and
