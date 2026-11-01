@@ -1048,6 +1048,67 @@ test(
   },
 );
 
+test(
+  "report helper attaches reported checks and files; malformed values soft-fail",
+  { skip: networkSkip },
+  async () => {
+    const fake = await viewer();
+    const base = [
+      "skills/ousel/scripts/report.mjs",
+      "--url",
+      fake.url,
+      "--actor",
+      "dev",
+      "--action",
+      "complete",
+    ];
+    try {
+      assert.equal(
+        (
+          await run([
+            ...base,
+            "--check",
+            "npm test=passed",
+            "--check",
+            "lint=a=b",
+            "--file",
+            "src/a.ts=modified",
+            "--file",
+            "README.md",
+          ])
+        ).code,
+        0,
+      );
+      assert.equal(fake.posts.length, 1);
+      assert.equal(fake.posts[0]?.source, "reported");
+      assert.deepEqual(fake.posts[0]?.checks, [
+        { name: "npm test", result: "passed", evidence: "reported" },
+        { name: "lint", result: "a=b", evidence: "reported" },
+      ]);
+      assert.deepEqual(fake.posts[0]?.files, [
+        { path: "src/a.ts", change: "modified" },
+        { path: "README.md" },
+      ]);
+      for (const bad of [
+        ["--check", "nameonly"],
+        ["--check", "=passed"],
+        ["--check", "name="],
+        ["--check", "deploy=Bearer abcdef"],
+        ["--file", ""],
+        ["--file", "=modified"],
+        ["--file", "a.ts="],
+      ]) {
+        const result = await run([...base, ...bad]);
+        assert.equal(result.code, 0);
+        assert.match(result.stderr, /not delivered/);
+      }
+      assert.equal(fake.posts.length, 1);
+    } finally {
+      await close(fake.server);
+    }
+  },
+);
+
 test("the hook runs when invoked through a symlinked path", async () => {
   const fake = await viewer();
   const directory = await mkdtemp(path.join(tmpdir(), "ousel-symlink-"));

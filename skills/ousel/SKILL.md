@@ -65,13 +65,25 @@ node skills/ousel/scripts/report.mjs --actor reviewer --action handoff --session
 node skills/ousel/scripts/report.mjs --actor implementer --action blocked --session task-session --project example --task integration --status blocked --summary 'Need a decision on which project to connect'
 ```
 
+Attach reported validation and file references with repeatable flags; no curl needed.
+Split at the first `=`, so values may contain `=`. Checks are always
+`evidence: "reported"`; the helper cannot send `captured`. A check without `=`,
+an empty name/result/path, an empty `=CHANGE`, or a value the helper redacts
+sends nothing and prints the soft-failure note. A check name containing `=`
+cannot be expressed because the first `=` always separates name from result.
+
+```sh
+node skills/ousel/scripts/report.mjs --actor implementer --action complete --session task-session --project example --task integration --status ok --summary 'Added the flags' --check 'npm test=passed' --check 'npm run check=passed' --file src/a.ts=modified --file README.md
+```
+
 The helper always sends `source: "reported"`. It accepts `--actor`, `--action`,
 `--summary`, `--status`, `--verdict`, `--session`, `--target`, `--parent`,
-`--project`, `--task`, and `--url`. `OUSEL_URL`, `OUSEL_PROJECT`, and `OUSEL_TASK`
+`--project`, `--task`, `--url`, and repeatable `--check NAME=RESULT` and
+`--file PATH[=CHANGE]`. `OUSEL_URL`, `OUSEL_PROJECT`, and `OUSEL_TASK`
 are fallbacks. `--health` prints reachable/unreachable and exits 2 if unavailable;
 use that only as an explicit diagnostic, never a prerequisite for real work.
 
-For structured issues or checks, use curl with a short timeout. For example,
+For structured issues, or checks that need `command`/`durationMs`, use curl with a short timeout. For example,
 after actually observing the described finding (replace the illustrative data):
 
 ```sh
