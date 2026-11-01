@@ -77,7 +77,9 @@ Connect Claude Code (project directory and task slug are required):
 npm run connect:claude -- --project /path/to/project --task my-task
 ```
 
-See [docs/claude-code-integration.md](docs/claude-code-integration.md).
+If Ousel is not on port 4317, add `--url http://127.0.0.1:<port>`; the connect
+command does not read `OUSEL_PORT` on its own. See
+[docs/claude-code-integration.md](docs/claude-code-integration.md).
 
 For Codex or any other host, report explicitly. Checks and file references are
 posted as `reported`, never `captured`:
