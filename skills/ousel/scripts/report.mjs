@@ -101,12 +101,19 @@ export async function report(args = process.argv.slice(2), env = process.env) {
     };
     const checks = (values.check ?? []).map((raw) => {
       const [name, result] = pair(raw, [200, 40]);
-      if (!name || !result) throw new Error();
+      if (!name || !result || name === "[redacted]" || result === "[redacted]")
+        throw new Error();
       return { name, result, evidence: "reported" };
     });
     const files = (values.file ?? []).map((raw) => {
       const [path, change, hasChange] = pair(raw, [1000, 40]);
-      if (!path || (hasChange && !change)) throw new Error();
+      if (
+        !path ||
+        path === "[redacted]" ||
+        change === "[redacted]" ||
+        (hasChange && !change)
+      )
+        throw new Error();
       return change ? { path, change } : { path };
     });
     if (checks.length) event.checks = checks;

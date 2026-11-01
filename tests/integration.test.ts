@@ -1093,6 +1093,7 @@ test(
         ["--check", "nameonly"],
         ["--check", "=passed"],
         ["--check", "name="],
+        ["--check", "deploy=Bearer abcdef"],
         ["--file", ""],
         ["--file", "=modified"],
         ["--file", "a.ts="],

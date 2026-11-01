@@ -105,7 +105,8 @@ visible through the companion reporting skill in
 events. Reported means the agent said so; it is labeled as such in the viewer.
 Do not describe a reported event as captured evidence. The helper also takes
 repeatable `--check NAME=RESULT` and `--file PATH[=CHANGE]`; checks are always
-`evidence: "reported"`.
+`evidence: "reported"`. A check needs `=`, and names containing `=` cannot be
+expressed because the first `=` is the separator.
 
 ```bash
 node skills/ousel/scripts/report.mjs --actor implementer --action complete --session task-session --project example --task integration --status ok --summary 'Added the flags' --check 'npm test=passed' --file src/a.ts=modified

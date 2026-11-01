@@ -67,8 +67,10 @@ node skills/ousel/scripts/report.mjs --actor implementer --action blocked --sess
 
 Attach reported validation and file references with repeatable flags; no curl needed.
 Split at the first `=`, so values may contain `=`. Checks are always
-`evidence: "reported"`; the helper cannot send `captured`. An empty name, result or
-path (or an empty `=CHANGE`) sends nothing and prints the soft-failure note.
+`evidence: "reported"`; the helper cannot send `captured`. A check without `=`,
+an empty name/result/path, an empty `=CHANGE`, a name containing `=` (it becomes
+part of the result), or a value the helper redacts sends nothing and prints the
+soft-failure note.
 
 ```sh
 node skills/ousel/scripts/report.mjs --actor implementer --action complete --session task-session --project example --task integration --status ok --summary 'Added the flags' --check 'npm test=passed' --check 'npm run check=passed' --file src/a.ts=modified --file README.md

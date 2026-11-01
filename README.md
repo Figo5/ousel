@@ -22,8 +22,9 @@ Silence means **stale or unknown** — never "blocked", never "done".
 [![Ousel real-task walkthrough](docs/demo-ousel-task.png)](docs/demo-ousel-task.mp4)
 
 **[Watch the 63-second walkthrough](docs/demo-ousel-task.mp4)** — a real task:
-Claude Code's hook captures its session and a passing test, Codex reports an
-independent review and finds a docs gap, Claude revises, and Codex approves.
+Maki hands the task to Claude Code, whose hook captures its session and a
+passing test. Codex reports an independent review and finds a docs gap; Claude
+revises, and Codex approves.
 The badges keep **captured** evidence separate from **reported** claims.
 
 The task view answers five questions without opening raw logs: who is working,
@@ -58,7 +59,7 @@ npm start
 
 `npm start` prints `Ousel http://127.0.0.1:4317` and `Local data: …`. Open it.
 
-Check it works:
+In a second terminal, check it works:
 
 ```bash
 curl -s localhost:4317/ingest \
