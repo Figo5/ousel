@@ -130,6 +130,15 @@ For automatic Claude Code capture:
 npm run connect:claude -- --project /path/to/project --task <task-slug>
 ```
 
+If the viewer uses a different port, pass its URL explicitly:
+
+```bash
+npm run connect:claude -- --project /path/to/project --task <task-slug> --url http://127.0.0.1:4318
+```
+
+The connection command does not read `OUSEL_PORT`; use the actual viewer URL
+for both connection setup and the health/reporting commands above.
+
 See [docs/claude-code-integration.md](docs/claude-code-integration.md). Codex and
 other hosts use explicit reporting above; no automatic capture is claimed for
 them. A companion reporting skill is in [skills/ousel](skills/ousel/SKILL.md).
